@@ -1,4 +1,6 @@
 import asyncio
+import json
+import os
 import time
 
 from selenium import webdriver
@@ -1006,6 +1008,102 @@ def contar_localidades_disponibles(driver, url):
         return [], [], url
 
 
+# ============================================================
+# DEDUPLICACION DE NOTIFICACIONES
+# ============================================================
+# Evita reenviar el mismo aviso en cada vuelta del bucle.
+# Se notifica una localidad cuando:
+#   1. Aparece por primera vez (transicion agotado -> disponible), o
+#   2. Sigue disponible y ya paso el intervalo de recordatorio.
+#
+# Anti-intermitencia: una lectura fallida o lenta puede devolver la pagina
+# vacia aunque la localidad siga ahi. Por eso una localidad no se da por
+# agotada hasta acumular varias lecturas consecutivas sin verla; si se
+# olvidara a la primera, reaparecer al ciclo siguiente generaria un aviso
+# nuevo y volveriamos al spam.
+
+ARCHIVO_ESTADO = os.path.join(os.path.dirname(os.path.abspath(__file__)), "estado_notificaciones.json")
+INTERVALO_RECORDATORIO = 600  # Segundos: reavisar si sigue disponible (10 min)
+LECTURAS_VACIAS_PARA_OLVIDAR = 3  # Lecturas seguidas sin verla antes de darla por agotada
+
+
+def _clave_estado(url, localidad):
+    """Identifica una localidad concreta dentro de una URL concreta"""
+    return f"{url}||{localidad}"
+
+
+def cargar_estado():
+    """Lee el registro de notificaciones previas. Si no existe o esta corrupto, arranca vacio"""
+    try:
+        with open(ARCHIVO_ESTADO, "r", encoding="utf-8") as f:
+            estado = json.load(f)
+        if isinstance(estado, dict):
+            print(f"✓ Estado cargado: {len(estado)} localidades ya notificadas")
+            return estado
+        print("⚠️ Archivo de estado con formato inesperado. Empezando de cero")
+    except FileNotFoundError:
+        print("ℹ️ Sin estado previo. Empezando de cero")
+    except (json.JSONDecodeError, OSError) as e:
+        print(f"⚠️ No se pudo leer el estado ({e}). Empezando de cero")
+    return {}
+
+
+def guardar_estado(estado):
+    """Escribe el registro en disco de forma atomica, para no corromperlo con un Ctrl+C"""
+    temporal = ARCHIVO_ESTADO + ".tmp"
+    try:
+        with open(temporal, "w", encoding="utf-8") as f:
+            json.dump(estado, f, ensure_ascii=False, indent=2)
+        os.replace(temporal, ARCHIVO_ESTADO)
+    except OSError as e:
+        print(f"⚠️ No se pudo guardar el estado: {e}")
+
+
+def localidades_a_notificar(estado, url, disponibles):
+    """
+    Decide de que localidades hay que avisar y actualiza el registro.
+
+    Devuelve (nuevas, recordatorios, ya_avisadas):
+      - nuevas: aparecen por primera vez
+      - recordatorios: siguen disponibles y toca reavisar
+      - ya_avisadas: disponibles pero en silencio (ya notificadas hace poco)
+    """
+    ahora = time.time()
+    nuevas = []
+    recordatorios = []
+    ya_avisadas = []
+
+    for localidad in disponibles:
+        clave = _clave_estado(url, localidad)
+        registro = estado.get(clave)
+
+        if registro is None:
+            estado[clave] = {"ultimo_aviso": ahora, "lecturas_vacias": 0}
+            nuevas.append(localidad)
+            continue
+
+        # Sigue disponible: se reinicia el contador de ausencias
+        registro["lecturas_vacias"] = 0
+
+        if ahora - registro.get("ultimo_aviso", 0) >= INTERVALO_RECORDATORIO:
+            registro["ultimo_aviso"] = ahora
+            recordatorios.append(localidad)
+        else:
+            ya_avisadas.append(localidad)
+
+    # Localidades que ya no aparecen: se olvidan tras varias lecturas vacias
+    disponibles_set = set(disponibles)
+    for clave in [k for k in estado if k.startswith(f"{url}||")]:
+        localidad = clave.split("||", 1)[1]
+        if localidad in disponibles_set:
+            continue
+        estado[clave]["lecturas_vacias"] = estado[clave].get("lecturas_vacias", 0) + 1
+        if estado[clave]["lecturas_vacias"] >= LECTURAS_VACIAS_PARA_OLVIDAR:
+            del estado[clave]
+
+    return nuevas, recordatorios, ya_avisadas
+
+
 def monitorear_urls(driver):
     """Monitorea todas las URLs en busca de disponibilidad"""
 
@@ -1013,6 +1111,9 @@ def monitorear_urls(driver):
     print("MONITOR DE DISPONIBILIDAD - TUBOLETA")
     print("=" * 70)
     print(f"Total de URLs a monitorear: {len(URLS_A_MONITOREAR)}")
+    print(f"Recordatorio si sigue disponible: cada {INTERVALO_RECORDATORIO // 60} minutos")
+
+    estado = cargar_estado()
 
     intentos = 0
     max_intentos = 10000000
@@ -1066,10 +1167,22 @@ def monitorear_urls(driver):
                     print(f"   ✓ Disponibles totales: {len(disponibles)}")
                     print(f"   ✓ Disponibles filtrados: {len(disponibles_filtrados)}")
 
-                # ✅ Solo enviar notificación si hay disponibles DESPUÉS del filtro
-                if disponibles_filtrados:
-                    print("\n" + "=" * 70)
-                    print("🎉 ¡DISPONIBILIDAD DETECTADA (COINCIDE CON FILTRO)!")
+                # ✅ Deduplicación: avisar solo de lo nuevo o de lo que toca recordar
+                nuevas, recordatorios, ya_avisadas = localidades_a_notificar(
+                    estado, url_final, disponibles_filtrados
+                )
+                a_notificar = nuevas + recordatorios
+
+                if ya_avisadas and not a_notificar:
+                    print(f"   🔕 {len(ya_avisadas)} disponibles, ya notificadas (en silencio)")
+
+                if a_notificar:
+                    print()
+                    print("=" * 70)
+                    if nuevas:
+                        print("🎉 ¡DISPONIBILIDAD DETECTADA (COINCIDE CON FILTRO)!")
+                    else:
+                        print("🔔 RECORDATORIO: SIGUE DISPONIBLE")
                     print("=" * 70)
 
                     # Obtener nombre del evento y fecha
@@ -1081,7 +1194,10 @@ def monitorear_urls(driver):
                         print(f"   Fecha: {fecha_evento}")
 
                     # Construir mensaje
-                    mensaje = f"🎉 ¡DISPONIBILIDAD DETECTADA!\n\n"
+                    if nuevas:
+                        mensaje = f"🎉 ¡DISPONIBILIDAD DETECTADA!\n\n"
+                    else:
+                        mensaje = f"🔔 SIGUE DISPONIBLE (recordatorio)\n\n"
 
                     mensaje += f"📌 {nombre_evento}\n"
 
@@ -1090,45 +1206,36 @@ def monitorear_urls(driver):
 
                     mensaje += f"\n"
 
-                    # Determinar si mostrar nombres o solo conteo
-                    if tipo == 'Tuboleta' and "?productId=" in url_final and "&perfId=" not in url_final:
-                        # URL de producto: solo conteo
-                        mensaje += f"📍 TUBOLETA - {len(disponibles_filtrados)} localidades disponibles\n"
-                        for loc in disponibles_filtrados[:3]:
-                            mensaje += f"  • {loc}\n"
-                        if len(disponibles_filtrados) > 3:
-                            mensaje += f"  ... +{len(disponibles_filtrados) - 3} más\n"
-                        mensaje += f"  🔗 {url_final}\n\n"
-                    elif tipo == 'Pásala Búsqueda' or tipo == 'Pásala':
-                        # Pásala: mostrar nombres
-                        mensaje += f"📍 {tipo.upper()} - {len(disponibles_filtrados)} disponibles\n"
-                        for loc in disponibles_filtrados[:3]:
-                            mensaje += f"  • {loc}\n"
-                        if len(disponibles_filtrados) > 3:
-                            mensaje += f"  ... +{len(disponibles_filtrados) - 3} más\n"
-                        mensaje += f"  🔗 {url_final}\n\n"
-                    else:
-                        # Otros tipos: mostrar nombres
-                        mensaje += f"📍 {tipo.upper()} - {len(disponibles_filtrados)} disponibles\n"
-                        for loc in disponibles_filtrados[:3]:
-                            mensaje += f"  • {loc}\n"
-                        if len(disponibles_filtrados) > 3:
-                            mensaje += f"  ... +{len(disponibles_filtrados) - 3} más\n"
-                        mensaje += f"  🔗 {url_final}\n\n"
+                    # Las tres ramas anteriores generaban el mismo texto; se unifican.
+                    etiqueta = 'TUBOLETA' if tipo == 'Tuboleta' else tipo.upper()
+                    mensaje += f"📍 {etiqueta} - {len(a_notificar)} disponibles\n"
+                    for loc in a_notificar[:5]:
+                        mensaje += f"  • {loc}\n"
+                    if len(a_notificar) > 5:
+                        mensaje += f"  ... +{len(a_notificar) - 5} más\n"
+                    if ya_avisadas:
+                        mensaje += f"  (+{len(ya_avisadas)} ya avisadas antes)\n"
+                    mensaje += f"  🔗 {url_final}\n\n"
 
                     mensaje += f"⏰ {time.strftime('%H:%M:%S')}"
 
-                    print(f"\n📱 Enviando Telegram INMEDIATAMENTE...")
-                    print(f"   Longitud: {len(mensaje)} caracteres")
+                    print()
+                    print(f"📱 Enviando Telegram...")
+                    print(f"   Localidades en el aviso: {len(a_notificar)}")
                     enviar_whatsapp(mensaje)
 
-                    print(f"\n✅ Notificación enviada. Continuando monitoreo...")
-                    print(f"   Reintentando en 5 segundos...")
-                    time.sleep(5)
+                    # Persistir tras avisar: si el script muere ahora, al reiniciar
+                    # no repite los avisos ya enviados.
+                    guardar_estado(estado)
+                    print()
+                    print("✅ Notificación enviada. Continuando monitoreo...")
 
                 elif disponibles and url_final in FILTROS_LOCALIDADES:
                     # Hay disponibles pero no coinciden con el filtro
                     print(f"   ℹ️ Disponibles detectados pero NO coinciden con filtro")
+
+            # Fin de ronda: se persisten tambien los contadores de ausencia
+            guardar_estado(estado)
 
         except Exception as e:
             print(f"✗ Error en monitoreo: {e}")

@@ -39,3 +39,5 @@ desktop.ini
 # ============================================================
 *.log
 logs/
+estado_notificaciones.json
+estado_notificaciones.json.tmp

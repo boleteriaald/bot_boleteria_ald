@@ -146,13 +146,45 @@ monitorear_urls()  ──► bucle infinito
         └─ si queda algo: enviar_telegram()
 ```
 
+## Notificaciones: cuándo avisa y cuándo calla
+
+El monitor recuerda de qué ya te avisó, así que **no repite el mismo mensaje en cada
+vuelta del bucle**. Una localidad genera aviso cuando:
+
+1. **Aparece por primera vez** — la transición de agotado a disponible, que es lo que
+   de verdad importa.
+2. **Sigue disponible y han pasado 10 minutos** desde el último aviso. Es un
+   recordatorio, marcado como tal en el mensaje, por si no viste el primero.
+
+El registro es **por localidad individual**, no por URL: si ya te avisó de `PLATEA 307`
+y luego aparece `TRIBUNA 202`, la segunda también genera aviso.
+
+**Tolerancia a lecturas fallidas.** Si una página carga lenta, la lectura puede salir
+vacía aunque las boletas sigan ahí. Para que ese parpadeo no dispare un aviso nuevo al
+ciclo siguiente, una localidad no se da por agotada hasta **tres lecturas consecutivas**
+sin verla.
+
+El estado vive en `estado_notificaciones.json` (excluido de git) y sobrevive a los
+reinicios: si cortas el script y lo relanzas, no te bombardea con lo que ya sabías.
+
+Para ajustar el comportamiento, en la cabecera del script:
+
+```python
+INTERVALO_RECORDATORIO = 600        # Segundos entre recordatorios
+LECTURAS_VACIAS_PARA_OLVIDAR = 3    # Lecturas en vacío antes de dar algo por agotado
+```
+
+Si quieres empezar de cero (por ejemplo, para forzar que te vuelva a avisar de todo),
+basta con borrar el archivo de estado:
+
+```bash
+rm estado_notificaciones.json
+```
+
 ## Limitaciones conocidas
 
 Documentadas a propósito, para que no sorprendan:
 
-- **Notificaciones repetidas.** No hay memoria de estado: mientras una localidad siga
-  disponible, se envía un mensaje en cada vuelta del bucle. Con varios eventos activos
-  esto satura el chat y puede chocar con los límites de Telegram.
 - **Ticketmaster reporta el evento, no la localidad.** Solo comprueba si existe el
   botón "Ver entradas", así que devuelve el nombre del evento. En consecuencia, los
   filtros por localidad **no funcionan** en URLs de Ticketmaster.
