@@ -20,9 +20,6 @@ Repositorio: `boleteriaald/bot_boleteria_ald` — **es público**.
 
 Antes de cada `git add`, revisar `git status` y confirmar que ninguno aparece.
 
-`config.example.py` es la plantilla pública; si se añade una opción de
-configuración nueva, hay que reflejarla ahí (sin valores reales).
-
 ## Ejecución y pruebas
 
 El script necesita Chrome en modo debug (`iniciar_chrome_debug.bat`, puerto 9222) y

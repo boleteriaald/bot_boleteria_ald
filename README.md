@@ -26,8 +26,8 @@ boletas, detecta cuándo aparecen localidades disponibles y avisa por **Telegram
   ya está abierta.
 - No inicia sesión por ti. Debes estar logueado previamente en el perfil de Chrome
   que usa el monitor.
-- No envía WhatsApp. Ese canal existió (vía CallMeBot) y hoy está desactivado; el
-  código quedó comentado en el script.
+- No envía WhatsApp. Ese canal existió (vía CallMeBot) y se retiró; el único canal
+  de notificación es Telegram.
 
 ## Plataformas soportadas
 
@@ -60,17 +60,12 @@ pip install -r requirements.txt
 
 ### 1. Credenciales
 
-El archivo `config.py` **no está en el repositorio** (contiene secretos y está
-excluido en `.gitignore`). Créalo a partir de la plantilla:
+Crea un archivo `config.py` en la raíz del proyecto con dos valores:
 
-```bash
-cp config.example.py config.py
+```python
+TELEGRAM_BOT_TOKEN = "el token que te entrega @BotFather"
+TELEGRAM_CHAT_ID = "tu ID de usuario, que te da @userinfobot"
 ```
-
-Luego edítalo y rellena:
-
-- `TELEGRAM_BOT_TOKEN` — el token que te entrega @BotFather
-- `TELEGRAM_CHAT_ID` — tu ID de usuario, que te da [@userinfobot](https://t.me/userinfobot)
 
 Escríbele al menos una vez a tu bot desde Telegram antes de usarlo; si no, no puede
 enviarte mensajes.

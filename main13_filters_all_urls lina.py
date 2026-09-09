@@ -235,8 +235,12 @@ async def enviar_telegram(mensaje):
         return False
 
 
-def enviar_whatsapp(mensaje):
-    """Envía mensaje por Telegram (función wrapper para compatibilidad)"""
+def enviar_notificacion(mensaje):
+    """
+    Envia una notificacion por el canal configurado (hoy, Telegram).
+
+    Envuelve la funcion async para poder llamarla desde el bucle sincrono.
+    """
     try:
         # Ejecutar función async
         asyncio.run(enviar_telegram(mensaje))
@@ -246,41 +250,6 @@ def enviar_whatsapp(mensaje):
         return False
 
 
-# def enviar_whatsapp(mensaje):
-#     """Envía un mensaje por WhatsApp usando CallMeBot con encoding correcto"""
-#     try:
-#         # ✅ IMPORTANTE: Eliminar caracteres especiales problemáticos del mensaje
-#         # Reemplazar los corchetes por paréntesis que son más seguros
-#         mensaje_limpio = mensaje.replace('[', '(').replace(']', ')')
-#
-#         # ✅ Codificar el mensaje para URL
-#         mensaje_codificado = urllib.parse.quote(mensaje_limpio)
-#
-#         url = f"https://api.callmebot.com/whatsapp.php?phone={WHATSAPP_PHONE}&text={mensaje_codificado}&apikey={WHATSAPP_APIKEY}"
-#
-#         print(f"   📤 Enviando a: {WHATSAPP_PHONE}")
-#         print(f"   📊 Longitud (limpio): {len(mensaje_limpio)} caracteres")
-#
-#         response = requests.get(url, timeout=10)
-#
-#         if response.status_code == 200:
-#             print(f"✓ WhatsApp enviado exitosamente: {response.status_code}")
-#             return True
-#         elif response.status_code == 210 or response.status_code == 201:
-#             print(f"⚠️ WhatsApp - Error/Cola (código {response.status_code})")
-#             print(f"   ℹ️ El mensaje fue enviado pero quedó en cola (hasta 16 mensajes cada 240 minutos)")
-#             # Contar como éxito porque está en la cola
-#             return True
-#         else:
-#             print(f"⚠️ WhatsApp - Código inesperado ({response.status_code})")
-#             return False
-#
-#     except requests.exceptions.Timeout:
-#         print(f"✗ Error: Timeout al enviar WhatsApp (>10 segundos)")
-#         return False
-#     except Exception as e:
-#         print(f"✗ Error al enviar WhatsApp: {e}")
-#         return False
 
 
 def conectar_chrome():
@@ -450,7 +419,7 @@ def avisar_bloqueo(estado_bloqueo, url, motivo):
             + chr(10) + chr(10)
             + f"Hora: {time.strftime('%H:%M:%S')}"
     )
-    enviar_whatsapp(mensaje)
+    enviar_notificacion(mensaje)
     return True
 
 
@@ -1554,7 +1523,7 @@ def monitorear_urls(driver):
                     print()
                     print(f"📱 Enviando Telegram...")
                     print(f"   Localidades en el aviso: {len(a_notificar)}")
-                    enviar_whatsapp(mensaje)
+                    enviar_notificacion(mensaje)
 
                     # Persistir tras avisar: si el script muere ahora, al reiniciar
                     # no repite los avisos ya enviados.
