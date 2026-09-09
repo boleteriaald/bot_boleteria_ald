@@ -15,6 +15,16 @@ from config import TELEGRAM_BOT_TOKEN, TELEGRAM_CHAT_ID
 
 URLS_A_MONITOREAR = [
 
+    # ANUEL AA
+    "https://www.ticketmaster.co/event/anuel-aa-venta-general",
+
+    "https://www.ticketmaster.co/event/halloween-town",
+
+    "https://www.ticketmaster.co/event/jamiroquai-general-sale",
+
+    # CALVIN HARIS
+    "https://www.ticketmaster.co/event/calvin-harris-venta-general",
+
     # BTS
     "https://www.ticketmaster.co/event/bts-world-tour-venta-general-viernes-2-octubre",
     "https://www.ticketmaster.co/event/bts-world-tour-venta-general-sabado-3-octubre",
@@ -52,20 +62,14 @@ URLS_A_MONITOREAR = [
     # LOS CALIGARIS
     "https://tuboletapass4.checkout.tuboleta.com/selection/event/seat?perfId=10230442113890&table=1&productId=10230442107826",
 
-    # OMAR COURTZ
+    # OMAR COURTZ 12--NOV
+    "https://tbpgpal.checkout.tuboleta.com/selection/event/seat?perfId=10230527903278&productId=10230523214255",
+
+    # OMAR COURTZ 13--NOV
     "https://tbpgpal.checkout.tuboleta.com/selection/event/seat?perfId=10230524219204&productId=10230523214255",
 
     # "https://tbpgpal.checkout.tuboleta.com/selection/event/date?productId=10230387611599", #KRIS R LOCALIDAD FALLA
     # "https://tbpgpal.checkout.tuboleta.com/selection/event/seat?perfId=10230398494504&table=1&productId=10230387611599",
-    # "https://www.ticketmaster.co/event/grupo-firme-la-ultima-peda-pereira-venta-general",
-    # "https://www.ticketmaster.co/event/la-vela-puerca",
-    # "https://www.ticketmaster.co/event/arcangel-venta-general-nueva-fecha",
-    "https://www.ticketmaster.co/event/arcangel-venta-general",
-    # "https://www.taquillalive.com/performance-details/?artist=julion-alvarez&event=TCL.EVN1086.PRF1",
-    # "https://www.taquillalive.com/performance-details/?artist=la-pestilencia&event=TCL.EVN1154.PRF1",
-    # "https://www.taquillalive.com/performance-details/?artist=maroon-5&event=TCL.EVN1153.PRF1",
-    # "https://www.taquillalive.com/book-performance/?artist=maroon-5&event=TCL.EVN1153.PRF1",
-    # "https://www.taquillalive.com/book-performance/?artist=korn&event=TCL.EVN1034.PRF1",
 
     # LENNY TAVAREZ Y J QUILES
     # "https://breakfast.checkout.tuboleta.com/selection/event/date?productId=10230492501166",
@@ -110,9 +114,18 @@ URLS_A_MONITOREAR = [
 
 FILTROS_LOCALIDADES = {
 
-    # OMAR COURTZ
+    "https://www.ticketmaster.co/event/jamiroquai-general-sale":
+        ['PLATEA 1'],
+
+    # OMAR COURTZ 12--NOV
+    "https://tbpgpal.checkout.tuboleta.com/selection/event/seat?perfId=10230527903278&productId=10230523214255":
+    # "https://tbpgpal.checkout.tuboleta.com/selection/event/seat?perfId=10230527903278&table=1&productId=10230523214255":
+        ["TRIBUNA", "PLATEA"],
+
+    # OMAR COURTZ 13--NOV
     "https://tbpgpal.checkout.tuboleta.com/selection/event/seat?perfId=10230524219204&productId=10230523214255":
-        ["TRIBUNA", "PLATEA", ],
+    # "https://tbpgpal.checkout.tuboleta.com/selection/event/seat?perfId=10230524219204&table=1&productId=10230523214255":
+        ["TRIBUNA", "PLATEA"],
 
     # ROBBIE WILLIAMS
     # "https://tuboletapass.checkout.tuboleta.com/selection/event/date?productId=10230355790289":
