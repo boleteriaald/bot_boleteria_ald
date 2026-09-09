@@ -4,6 +4,7 @@ import os
 import time
 
 from selenium import webdriver
+from selenium.common.exceptions import NoSuchElementException, WebDriverException
 from selenium.webdriver.chrome.options import Options
 from selenium.webdriver.common.by import By
 from selenium.webdriver.support import expected_conditions as EC
@@ -291,6 +292,9 @@ def conectar_chrome():
         while intentos < max_intentos:
             try:
                 driver = webdriver.Chrome(options=chrome_options)
+                # Ningun execute_script puede bloquear el bucle indefinidamente:
+                # si tarda mas de la cuenta, Selenium lanza TimeoutException.
+                driver.set_script_timeout(TIEMPO_MAXIMO_SCRIPT)
                 print("✓ Conectado a Chrome")
                 return driver
             except Exception as e:
@@ -334,52 +338,320 @@ def es_url_taquillalive_book(url):
     return "taquillalive.com" in url and "book-performance" in url
 
 
-def verificar_disponibilidad_ticketmaster(driver, url):
+# ============================================================
+# DETECCION DE PAGINAS DE BLOQUEO / VERIFICACION ANTI-BOT
+# ============================================================
+# Sin esto, cuando una boletera responde con un desafio anti-bot el script lee
+# la pagina, no encuentra localidades y lo interpreta como "no hay nada". El
+# monitor se queda ciego sin avisar: ni detecta boletas ni informa del problema.
+#
+# Importante: NO basta con ver que la pagina carga scripts de Cloudflare
+# Turnstile o AWS WAF. Ticketmaster los carga en TODAS sus paginas, tambien
+# cuando funcionan con normalidad. Detectarlos como bloqueo daria una falsa
+# alarma en cada ronda. Lo que se busca son las senales del desafio en si.
+
+SENALES_BLOQUEO_TITULO = [
+    "just a moment",
+    "attention required",
+    "access denied",
+    "acceso denegado",
+    "pardon our interruption",
+    "security check",
+    "un momento",
+]
+
+SENALES_BLOQUEO_TEXTO = [
+    "verify you are human",
+    "verifique que usted es un ser humano",
+    "verificando que usted es un ser humano",
+    "unusual traffic",
+    "trafico inusual",
+    "actividad inusual",
+    "has been blocked",
+    "ha sido bloqueado",
+    "hemos detectado",
+    "automated requests",
+    "solicitudes automatizadas",
+    "checking your browser",
+]
+
+# Una pagina de desafio es corta. El umbral evita marcar como bloqueo una
+# pagina normal que mencione alguna de esas frases en su contenido.
+LONGITUD_MAXIMA_PAGINA_BLOQUEO = 2500
+
+
+def detectar_bloqueo(driver):
     """
-    Verifica disponibilidad en Ticketmaster
-    Busca el botón "Ver entradas" que indica disponibilidad
+    Indica si la pagina cargada es un desafio anti-bot en vez del contenido.
+
+    Devuelve (bloqueado, motivo).
     """
     try:
-        print(f"\n→ Navegando a Ticketmaster: {url}")
+        titulo = (driver.title or "").lower()
+
+        for senal in SENALES_BLOQUEO_TITULO:
+            if senal in titulo:
+                return True, f"titulo de la pagina: '{driver.title}'"
+
+        cuerpo = driver.find_element(By.TAG_NAME, "body").text
+        texto = cuerpo.lower()
+
+        if len(cuerpo) <= LONGITUD_MAXIMA_PAGINA_BLOQUEO:
+            for senal in SENALES_BLOQUEO_TEXTO:
+                if senal in texto:
+                    return True, f"texto de desafio: '{senal}'"
+
+        return False, None
+
+    except WebDriverException:
+        # Si no se puede inspeccionar, no se afirma que haya bloqueo: es
+        # preferible seguir monitoreando a detener el bot por un falso positivo.
+        return False, None
+
+
+def detectar_sala_espera(texto_pagina):
+    """
+    Indica si la pagina es una cola virtual / sala de espera.
+
+    No es un bloqueo, es lo contrario: la venta abrio y hay tanta demanda que
+    hay fila. Se avisa igualmente porque es el momento en que hay que entrar.
+    """
+    texto = (texto_pagina or '').lower()
+    for senal in SENALES_SALA_ESPERA:
+        if senal in texto:
+            return True, senal
+    return False, None
+
+
+def avisar_bloqueo(estado_bloqueo, url, motivo):
+    """
+    Notifica un bloqueo por Telegram, como maximo una vez por hora y por sitio,
+    para no convertir el propio aviso en una avalancha de mensajes.
+    """
+    from urllib.parse import urlparse
+
+    sitio = urlparse(url).netloc
+    ahora = time.time()
+    ultimo = estado_bloqueo.get(sitio, 0)
+
+    if ahora - ultimo < INTERVALO_AVISO_BLOQUEO:
+        return False
+
+    estado_bloqueo[sitio] = ahora
+
+    mensaje = (
+            "ATENCION: posible bloqueo anti-bot"
+            + chr(10) + chr(10)
+            + f"Sitio: {sitio}" + chr(10)
+            + f"Motivo: {motivo}" + chr(10)
+            + f"URL: {url}" + chr(10) + chr(10)
+            + "El monitor NO puede leer disponibilidad en este sitio mientras dure. "
+            + "Abre la ventana de Chrome y resuelve la verificacion a mano."
+            + chr(10) + chr(10)
+            + f"Hora: {time.strftime('%H:%M:%S')}"
+    )
+    enviar_whatsapp(mensaje)
+    return True
+
+
+# JavaScript que lee que sectores ofrece una pagina de Ticketmaster.
+#
+# La unidad de aviso es el SECTOR, que es lo que la propia pagina presenta en
+# su panel "Seleccionar sector". No se usan las secciones como unidad porque no
+# significan lo mismo en cada recinto: en Calvin Harris son localidades reales
+# ("119", "Platea 1"), pero en Anuel AA son asientos numerados y salen 251
+# elementos llamados "1", "2", "34". Un sector se considera disponible si
+# alguna de sus secciones lo esta, que es el criterio con el que la pagina
+# pinta su mapa.
+#
+# Dos fuentes, por orden:
+#   1. El estado interno (objeto global "App"): da sectores disponibles Y
+#      agotados, mas el detalle de secciones libres.
+#   2. El DOM (elementos .sectorOption): solo lo disponible, pero es lo que el
+#      usuario ve en pantalla. Sirve de red si cambia la estructura interna.
+#
+# No genera peticiones extra: todo esta en el HTML que el bucle ya descarga.
+#
+# El recorrido es iterativo, con registro de nodos visitados. Es imprescindible:
+# "App" es una aplicacion Backbone con referencias circulares y en los eventos
+# agotados no existe el catalogo, asi que la busqueda recorre el grafo entero.
+# Sin control de ciclos no termina nunca y cuelga el bucle de monitoreo.
+#
+# La profundidad debe ser holgada: el catalogo aparece a distinta hondura segun
+# el evento (nivel 6 en Calvin Harris, nivel 9 en Anuel AA). Con el limite en 8
+# los eventos como Anuel se leian como agotados teniendo boletas a la venta.
+JS_SECTORES_TICKETMASTER = """
+try {
+    var sectores = null;
+
+    if (window.App) {
+        var vistos = new Set();
+        var pendientes = [[window.App, 0]];
+        var nodos = 0;
+
+        while (pendientes.length > 0) {
+            var par = pendientes.pop();
+            var nodo = par[0];
+            var prof = par[1];
+
+            if (!nodo || typeof nodo !== 'object' || prof > 15) { continue; }
+            if (vistos.has(nodo)) { continue; }
+            vistos.add(nodo);
+
+            nodos = nodos + 1;
+            if (nodos > 20000) { break; }
+
+            if (typeof Node !== 'undefined' && nodo instanceof Node) { continue; }
+
+            if (Array.isArray(nodo)) {
+                if (nodo.length > 0 && nodo[0] && typeof nodo[0] === 'object'
+                    && 'name' in nodo[0] && 'rates' in nodo[0] && 'sections' in nodo[0]) {
+                    sectores = nodo;
+                    break;
+                }
+                for (var i = 0; i < nodo.length; i++) {
+                    pendientes.push([nodo[i], prof + 1]);
+                }
+                continue;
+            }
+
+            for (var k in nodo) {
+                try { pendientes.push([nodo[k], prof + 1]); } catch (e) {}
+            }
+        }
+    }
+
+    if (sectores) {
+        var salida = [];
+        sectores.forEach(function (sector) {
+            var nombre = (sector.name || '').toString().trim();
+            if (!nombre) { return; }
+            var secciones = sector.sections || [];
+            var libres = [];
+            secciones.forEach(function (seccion) {
+                if (seccion.available) {
+                    var n = (seccion.name || '').toString().trim();
+                    if (n) { libres.push(n); }
+                }
+            });
+            salida.push({
+                nombre: nombre,
+                disponible: libres.length > 0,
+                secciones: libres,
+                totalSecciones: secciones.length
+            });
+        });
+        return {origen: 'estado', sectores: salida};
+    }
+
+    var pintados = document.querySelectorAll('.sectorOption');
+    if (pintados.length > 0) {
+        var salidaDom = [];
+        for (var j = 0; j < pintados.length; j++) {
+            var titulo = pintados[j].querySelector('h5');
+            var texto = (titulo ? titulo.textContent : pintados[j].textContent).trim();
+            if (texto) {
+                salidaDom.push({nombre: texto, disponible: true, secciones: [], totalSecciones: 0});
+            }
+        }
+        return {origen: 'dom', sectores: salidaDom};
+    }
+
+    return null;
+} catch (e) {
+    return null;
+}
+"""
+
+
+def verificar_disponibilidad_ticketmaster(driver, url):
+    """
+    Devuelve las localidades disponibles en Ticketmaster, una por una.
+
+    Antes esta funcion solo miraba si existia el boton "Ver entradas" y
+    devolvia el NOMBRE DEL EVENTO como si fuera una localidad. Eso hacia dos
+    cosas mal: no decia que localidades habia, y los filtros por localidad
+    nunca casaban (comparaban "PLATEA 1" contra el titulo del evento).
+
+    Ahora se leen las secciones del estado interno de la pagina, que es lo
+    mismo que usa el mapa para pintar en naranja lo disponible.
+    """
+    try:
+        print(f"\n-> Navegando a Ticketmaster: {url}")
         driver.get(url)
         time.sleep(3)
 
-        # Obtener nombre del evento
-        nombre_evento = None
-        try:
-            # Intentar obtener el nombre del evento
-            nombre_evento = driver.find_element(By.XPATH, "//h1 | //h2[contains(@class, 'event')]").text.strip()
-        except:
-            try:
-                # Alternativa: obtener del title
-                nombre_evento = driver.title.split('|')[0].strip()
-            except:
-                nombre_evento = "Evento Ticketmaster"
-
+        nombre_evento = obtener_nombre_evento(driver)
         print(f"   Evento: {nombre_evento}")
 
-        # ✅ Buscar el botón "Ver entradas"
+        bloqueado, motivo = detectar_bloqueo(driver)
+        if bloqueado:
+            print(f"   BLOQUEO detectado: {motivo}")
+            return [], [], url
+
+        datos = driver.execute_script(JS_SECTORES_TICKETMASTER)
+
+        if datos and datos.get("sectores"):
+            sectores = datos["sectores"]
+            disponibles = [s["nombre"] for s in sectores if s["disponible"]]
+            agotadas = [s["nombre"] for s in sectores if not s["disponible"]]
+
+            origen = "estado interno" if datos.get("origen") == "estado" else "panel visible"
+            print(f"   Sectores leidos: {len(sectores)} (via {origen})")
+
+            if disponibles:
+                print(f"   DISPONIBLES ({len(disponibles)}):")
+                for sector in sectores:
+                    if not sector["disponible"]:
+                        continue
+                    detalle = ""
+                    # El detalle de secciones solo se muestra cuando son pocas y
+                    # por tanto significativas: en algunos recintos las secciones
+                    # son asientos numerados y listarlas seria ruido.
+                    if sector["secciones"] and sector["totalSecciones"] <= LIMITE_DETALLE_SECCIONES:
+                        detalle = "  ->  " + ", ".join(sector["secciones"])
+                    nombre_sector = sector["nombre"]
+                    print(f"      - {nombre_sector}{detalle}")
+            else:
+                print("   Sin sectores disponibles")
+
+            return disponibles, agotadas, url
+
+        # Reserva: si la pagina cambia de formato y no se puede leer el estado,
+        # se cae al comportamiento anterior (solo saber si hay venta abierta),
+        # avisando de que el detalle por localidad no esta disponible.
+        # Un evento agotado no publica catalogo de sectores: la pagina solo
+        # muestra el rotulo AGOTADO y ni siquiera pinta el boton de compra.
+        # Es un resultado normal, no un fallo de lectura.
         try:
-            boton_ver_entradas = driver.find_element(By.XPATH,
-                                                     "//button[contains(text(), 'Ver entradas')] | "
-                                                     "//a[contains(text(), 'Ver entradas')] | "
-                                                     "//button[contains(text(), 'BUY')] | "
-                                                     "//button[contains(text(), 'Buy')] | "
-                                                     "//button[contains(@class, 'purchase')] | "
-                                                     "//a[contains(@class, 'purchase')]"
-                                                     )
+            texto_pagina = driver.find_element(By.TAG_NAME, "body").text
+        except WebDriverException:
+            texto_pagina = ""
 
-            # Si encontró el botón, está disponible
-            print(f"   ✅ Botón 'Ver entradas' encontrado - DISPONIBLE")
-            return [nombre_evento], [], url
-
-        except:
-            # No encontró botón = agotado o sin venta
-            print(f"   ❌ Botón 'Ver entradas' NO encontrado - AGOTADO/SIN VENTA")
+        if "AGOTADO" in texto_pagina.upper():
+            print("   AGOTADO - el evento no tiene localidades a la venta")
             return [], [nombre_evento], url
 
-    except Exception as e:
-        print(f"✗ Error al verificar disponibilidad en Ticketmaster: {e}")
+        # Cola virtual: la venta esta abierta, solo que hay fila. Es el aviso
+        # mas urgente de todos, aunque no se pueda decir que localidades hay.
+        en_cola, senal_cola = detectar_sala_espera(texto_pagina)
+        if en_cola:
+            print(f"   SALA DE ESPERA detectada ({senal_cola}) - LA VENTA ESTA ABIERTA")
+            return [f"{nombre_evento} - SALA DE ESPERA, la venta abrio {MARCADOR_SIN_DETALLE}"], [], url
+
+        print("   AVISO: no se pudo leer el detalle por localidad, se usa el metodo antiguo")
+        try:
+            driver.find_element(By.XPATH,
+                                "//button[contains(text(), 'Ver entradas')] | "
+                                "//a[contains(text(), 'Ver entradas')]")
+            print("   Boton 'Ver entradas' presente - HAY VENTA ABIERTA")
+            return [f"{nombre_evento} - venta abierta {MARCADOR_SIN_DETALLE}"], [], url
+        except NoSuchElementException:
+            print("   Boton 'Ver entradas' ausente - AGOTADO / SIN VENTA")
+            return [], [nombre_evento], url
+
+    except WebDriverException as e:
+        print(f"Error al verificar disponibilidad en Ticketmaster: {e}")
         return [], [], url
 
 
@@ -1039,6 +1311,44 @@ ARCHIVO_ESTADO = os.path.join(os.path.dirname(os.path.abspath(__file__)), "estad
 INTERVALO_RECORDATORIO = 600  # Segundos: reavisar si sigue disponible (10 min)
 LECTURAS_VACIAS_PARA_OLVIDAR = 3  # Lecturas seguidas sin verla antes de darla por agotada
 
+# Pausa heredada del codigo anterior a la deduplicacion. NO reducirla: marca el
+# ritmo de peticiones que lleva meses ejecutandose sin bloqueos por parte de las
+# boleteras. La deduplicacion cambia cuando se avisa, no cada cuanto se consulta.
+PAUSA_TRAS_DISPONIBILIDAD = 5  # Segundos
+
+# Un bloqueo persiste; avisar en cada ronda solo cambiaria un problema de
+# ruido por otro. Un aviso por sitio y por hora basta para enterarse.
+INTERVALO_AVISO_BLOQUEO = 3600  # Segundos
+
+TIEMPO_MAXIMO_SCRIPT = 20  # Segundos maximos para un execute_script
+
+# Por encima de este numero de secciones se asume que son asientos numerados
+# y no localidades, asi que no se detallan en pantalla.
+LIMITE_DETALLE_SECCIONES = 20
+
+# Marcador para avisos en los que se sabe que HAY venta abierta pero no se
+# pudo leer que localidades. Estos avisos se saltan el filtro de localidades:
+# un filtro compara nombres de localidad, y aqui no hay ninguno que comparar,
+# asi que el filtro los descartaria y el usuario se quedaria sin saber que la
+# venta abrio. Vale mas un aviso impreciso que ninguno.
+MARCADOR_SIN_DETALLE = "[SIN DETALLE]"
+
+# Frases de sala de espera / cola virtual. No son un bloqueo: significan que
+# la venta ESTA ABIERTA y hay tanta demanda que hay fila. Es justo el momento
+# en que el usuario necesita enterarse.
+SENALES_SALA_ESPERA = [
+    "sala de espera",
+    "waiting room",
+    "tu turno",
+    "your turn",
+    "en la fila",
+    "in line",
+    "queue",
+    "alta demanda",
+    "high demand",
+    "tiempo estimado de espera",
+]
+
 
 def _clave_estado(url, localidad):
     """Identifica una localidad concreta dentro de una URL concreta"""
@@ -1127,6 +1437,7 @@ def monitorear_urls(driver):
     print(f"Recordatorio si sigue disponible: cada {INTERVALO_RECORDATORIO // 60} minutos")
 
     estado = cargar_estado()
+    estado_bloqueo = {}
 
     intentos = 0
     max_intentos = 10000000
@@ -1179,6 +1490,14 @@ def monitorear_urls(driver):
                     print(f"   📌 Filtro activo: {filtro_info}")
                     print(f"   ✓ Disponibles totales: {len(disponibles)}")
                     print(f"   ✓ Disponibles filtrados: {len(disponibles_filtrados)}")
+
+                # Un desafio anti-bot se lee como 'no hay nada'. Sin este aviso,
+                # el monitor quedaria ciego sin que nadie se entere.
+                if not disponibles and not agotadas:
+                    bloqueado, motivo = detectar_bloqueo(driver)
+                    if bloqueado:
+                        print(f"   BLOQUEO detectado en {url_final}: {motivo}")
+                        avisar_bloqueo(estado_bloqueo, url_final, motivo)
 
                 # ✅ Deduplicación: avisar solo de lo nuevo o de lo que toca recordar
                 nuevas, recordatorios, ya_avisadas = localidades_a_notificar(
@@ -1246,6 +1565,13 @@ def monitorear_urls(driver):
                 elif disponibles and url_final in FILTROS_LOCALIDADES:
                     # Hay disponibles pero no coinciden con el filtro
                     print(f"   ℹ️ Disponibles detectados pero NO coinciden con filtro")
+
+                # Antes esta pausa ocurria tras cada notificacion. Con la
+                # deduplicacion se avisa mucho menos, asi que se ata a la
+                # disponibilidad y no al aviso: el bucle mantiene exactamente
+                # el mismo ritmo de consultas que antes.
+                if disponibles_filtrados:
+                    time.sleep(PAUSA_TRAS_DISPONIBILIDAD)
 
             # Fin de ronda: se persisten tambien los contadores de ausencia
             guardar_estado(estado)
@@ -1354,6 +1680,13 @@ def filtrar_localidades(disponibles, url):
     localidades_filtradas = []
 
     for localidad in disponibles:
+        # Los avisos sin detalle no se filtran nunca: no hay nombre de
+        # localidad contra el que comparar, y descartarlos dejaria al usuario
+        # sin enterarse de que la venta abrio.
+        if MARCADOR_SIN_DETALLE in localidad:
+            localidades_filtradas.append(localidad)
+            continue
+
         for palabra_clave in filtro:
             # Búsqueda parcial (no sensible a mayúsculas)
             if palabra_clave.lower() in localidad.lower():
