@@ -2,6 +2,7 @@ import asyncio
 import json
 import os
 import time
+import unicodedata
 
 from selenium import webdriver
 from selenium.common.exceptions import NoSuchElementException, TimeoutException, WebDriverException
@@ -1654,6 +1655,31 @@ def obtener_fecha_evento(driver):
         return None
 
 
+# Separadores que se tratan como un espacio al comparar nombres de localidad.
+SEPARADORES_LOCALIDAD = ["-", "–", "—", ",", "/"]
+
+
+def normalizar_nombre(texto):
+    """
+    Deja un nombre de localidad en una forma comparable.
+
+    Los nombres los escribe a mano quien da de alta cada evento, y no son
+    consistentes: en Mana la pagina informativa dice "110, 112, 114" y la de
+    venta "110 - 112 - 114"; aparece "Platea E  Pares" con doble espacio y
+    "106 -108" sin espacio tras el guion. Sin normalizar, un filtro de dos
+    palabras como "PLATEA E" fallaria en silencio ante un doble espacio.
+
+    Se pasa a minusculas, se quitan tildes, los separadores cuentan como
+    espacio y los espacios repetidos se reducen a uno. Se aplica igual a las
+    palabras del filtro y a los nombres de la pagina, en todos los eventos.
+    """
+    texto = unicodedata.normalize("NFKD", texto or "")
+    texto = "".join(c for c in texto if not unicodedata.combining(c)).lower()
+    for separador in SEPARADORES_LOCALIDAD:
+        texto = texto.replace(separador, " ")
+    return " ".join(texto.split())
+
+
 def filtrar_localidades(disponibles, url):
     """
     Filtra las localidades disponibles según los criterios definidos
@@ -1684,9 +1710,13 @@ def filtrar_localidades(disponibles, url):
             localidades_filtradas.append(localidad)
             continue
 
+        nombre = normalizar_nombre(localidad)
         for palabra_clave in filtro:
-            # Búsqueda parcial (no sensible a mayúsculas)
-            if palabra_clave.lower() in localidad.lower():
+            # Busqueda parcial sobre nombres normalizados. Una palabra clave
+            # que queda vacia (p. ej. solo un guion) se ignora: si no, al
+            # estar contenida en cualquier texto, coincidiria con todo.
+            clave = normalizar_nombre(palabra_clave)
+            if clave and clave in nombre:
                 localidades_filtradas.append(localidad)
                 break  # No agregar duplicados
 

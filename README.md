@@ -94,8 +94,16 @@ FILTROS_LOCALIDADES = {
 
 Reglas del filtro:
 
-- La coincidencia es **parcial y sin distinguir mayúsculas**: `"platea"` encuentra
-  `"PLATEA ORIENTAL 2"`.
+- La coincidencia es **parcial**: `"platea"` encuentra `"PLATEA ORIENTAL 2"`.
+- Se ignoran mayúsculas, tildes, espacios repetidos y separadores (`-`, `,`, `/`):
+  `"PLATEA E PARES"` encuentra `"Platea E  Pares"`, y `"110, 112"` encuentra
+  `"110 - 112 - 114"`. Los nombres los escribe a mano cada boletera y no son
+  consistentes, así que esto evita fallos silenciosos.
+- Usa la palabra más corta que identifique la localidad (`PLATEA A`, `PREFERENCIAL`,
+  `119`). No copies el nombre completo de la página informativa del evento: en la
+  de venta suele cambiar (los rangos se parten, se añaden sufijos de edad).
+- Ojo con los nombres contenidos en otros: `NORTE BAJA` también encuentra
+  `ORIENTAL NORTE BAJA`. Y con los números cortos: `11` encuentra `110`, `111`…
 - La URL debe ser **idéntica** a la de `URLS_A_MONITOREAR`, carácter por carácter.
   Si no coincide, el filtro se ignora en silencio.
 - Una URL **sin** filtro definido notifica **cualquier** disponibilidad.
