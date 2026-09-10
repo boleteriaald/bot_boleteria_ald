@@ -171,6 +171,10 @@ vacía aunque las boletas sigan ahí. Para que ese parpadeo no dispare un aviso 
 ciclo siguiente, una localidad no se da por agotada hasta **tres lecturas consecutivas**
 sin verla.
 
+**Si Telegram falla**, el aviso no se da por enviado: se reintenta en la ronda
+siguiente en lugar de esperar al recordatorio de 10 minutos. Lo mismo con los avisos
+de bloqueo. En el registro queda como `AVISO NO ENVIADO, se reintentara`.
+
 El estado vive en `estado_notificaciones.json` (excluido de git) y sobrevive a los
 reinicios: si cortas el script y lo relanzas, no te bombardea con lo que ya sabías.
 

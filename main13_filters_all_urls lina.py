@@ -488,8 +488,6 @@ def avisar_bloqueo(estado_bloqueo, url, motivo):
     if ahora - ultimo < INTERVALO_AVISO_BLOQUEO:
         return False
 
-    estado_bloqueo[sitio] = ahora
-
     mensaje = (
             "ATENCION: posible bloqueo anti-bot"
             + chr(10) + chr(10)
@@ -501,8 +499,14 @@ def avisar_bloqueo(estado_bloqueo, url, motivo):
             + chr(10) + chr(10)
             + f"Hora: {time.strftime('%H:%M:%S')}"
     )
-    enviar_notificacion(mensaje)
-    return True
+    enviado = enviar_notificacion(mensaje)
+    if enviado:
+        # La hora se anota solo si el aviso salio. Antes se anotaba antes de
+        # enviar, y un fallo de Telegram silenciaba el aviso de bloqueo una hora.
+        estado_bloqueo[sitio] = ahora
+    else:
+        log.error(f"Aviso de BLOQUEO NO ENVIADO, se reintentara | {url}")
+    return enviado
 
 
 # JavaScript que lee que sectores ofrece una pagina de Ticketmaster.
@@ -1502,6 +1506,31 @@ def localidades_a_notificar(estado, url, disponibles):
     return nuevas, recordatorios, ya_avisadas
 
 
+def deshacer_avisos(estado, url, nuevas, recordatorios):
+    """
+    Revierte lo que localidades_a_notificar() registro para un aviso que no salio.
+
+    localidades_a_notificar() anota la hora del aviso al decidirlo, antes de
+    enviarlo. Si luego Telegram falla, la localidad quedaba marcada como avisada
+    y no se volvia a intentar hasta el recordatorio, 10 minutos despues: 10
+    minutos sin saber de una boleta. Al deshacer, se reintenta en la ronda
+    siguiente.
+
+    - Las nuevas se olvidan: en la ronda siguiente vuelven a ser nuevas.
+    - Los recordatorios quedan con la hora a cero: en la ronda siguiente vuelve a
+      tocarles recordatorio, conservando su contador de lecturas vacias.
+
+    Solo afecta a los mensajes de Telegram; no anade ninguna visita a las
+    boleteras.
+    """
+    for localidad in nuevas:
+        estado.pop(_clave_estado(url, localidad), None)
+    for localidad in recordatorios:
+        registro = estado.get(_clave_estado(url, localidad))
+        if registro is not None:
+            registro["ultimo_aviso"] = 0
+
+
 def monitorear_urls(driver):
     """Monitorea todas las URLs en busca de disponibilidad"""
 
@@ -1648,8 +1677,13 @@ def monitorear_urls(driver):
                         print(f"   Localidades en el aviso: {len(a_notificar)}")
                         enviado = enviar_notificacion(mensaje)
 
+                        # Si no salio, se deshace el registro para reintentarlo en la
+                        # ronda siguiente en vez de esperar al recordatorio de 10 min.
+                        if not enviado:
+                            deshacer_avisos(estado, url_final, nuevas, recordatorios)
+
                         # Persistir tras avisar: si el script muere ahora, al reiniciar
-                        # no repite los avisos ya enviados.
+                        # no repite los avisos ya enviados (ni da por enviados los fallidos).
                         guardar_estado(estado)
                         print()
                         if enviado:
@@ -1658,9 +1692,10 @@ def monitorear_urls(driver):
                                 f"AVISO enviado | nuevas={nuevas} recordatorios={recordatorios} | {url_final}"
                             )
                         else:
-                            print("✗ El aviso NO se pudo enviar por Telegram")
+                            print("✗ El aviso NO se pudo enviar por Telegram; se reintentará en la próxima ronda")
                             log.error(
-                                f"AVISO NO ENVIADO | nuevas={nuevas} recordatorios={recordatorios} | {url_final}"
+                                f"AVISO NO ENVIADO, se reintentara | nuevas={nuevas} "
+                                f"recordatorios={recordatorios} | {url_final}"
                             )
 
                     elif disponibles and url_final in FILTROS_LOCALIDADES:

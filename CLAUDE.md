@@ -120,18 +120,17 @@ Descubierto contra páginas reales; conviene no volver a aprenderlo a golpes.
 Hechos: README real, deduplicación, detector de Ticketmaster por sector, detección de
 bloqueo y de sala de espera, normalización de nombres en los filtros, límites de
 tiempo en scripts y cargas de página, registro en `logs/monitor.log`, sin `except:`
-desnudos, cada URL aislada en su propio `try` y emojis seguros en consolas cp1252.
+desnudos, cada URL aislada en su propio `try`, emojis seguros en consolas cp1252 y
+reintento de los avisos que Telegram no pudo entregar (`deshacer_avisos()`).
 
 Por orden:
 
-1. Si Telegram falla, la deduplicación ya marcó la localidad como avisada, así que
-   el aviso no se reintenta hasta el recordatorio de 10 minutos. Propuesto: si el
-   envío falla, deshacer ese registro para que se reintente en la ronda siguiente.
-2. Sin reconexión: si Chrome se cierra, el bucle gira registrando errores.
-3. Limpieza: `es_pagina_de_fechas` y `obtener_primera_fecha_disponible` no se llaman
+1. Sin reconexión: si Chrome se cierra, el bucle gira registrando errores.
+2. Limpieza: `es_pagina_de_fechas` y `obtener_primera_fecha_disponible` no se llaman
    nunca (`buscar_disponibilidad_pasala` está dormida, no muerta: se conserva);
    `requirements.txt` sin versión de `python-telegram-bot` y con `requests` sin uso;
    el nombre del script lleva espacio y número de versión; restos de git de la
    reescritura del historial (rama `respaldo-antes-de-limpiar`, stash, `refs/original`).
-4. Falsos positivos por selectores genéricos (`div` con clase `row`) en Tuboleta y
+3. Falsos positivos por selectores genéricos (`div` con clase `row`) en Tuboleta y
    TaquillaLive. El más delicado: tocarlo solo verificando contra páginas reales.
+   Evidencia en vivo: Gorillaz en TaquillaLive (book) lee 22 sectores disponibles.
