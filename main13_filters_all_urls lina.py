@@ -4,7 +4,7 @@ import os
 import time
 
 from selenium import webdriver
-from selenium.common.exceptions import NoSuchElementException, WebDriverException
+from selenium.common.exceptions import NoSuchElementException, TimeoutException, WebDriverException
 from selenium.webdriver.chrome.options import Options
 from selenium.webdriver.common.by import By
 from selenium.webdriver.support import expected_conditions as EC
@@ -250,6 +250,27 @@ def enviar_notificacion(mensaje):
         return False
 
 
+def navegar(driver, url):
+    """
+    Carga una URL sin arriesgarse a esperar indefinidamente.
+
+    Si la pagina no termina de cargar en TIEMPO_MAXIMO_CARGA, se detiene la
+    carga y se sigue con lo que haya llegado, en vez de dar la lectura por
+    fallida. El evento de "carga completa" espera tambien a imagenes y
+    rastreadores, pero el contenido que lee el bot (el HTML y el catalogo de
+    sectores) llega mucho antes. Descartar la pagina convertiria una carga
+    lenta en un falso "no hay disponibilidad".
+
+    No reintenta: una sola visita por URL y ronda, como siempre.
+    """
+    try:
+        driver.get(url)
+    except TimeoutException:
+        print(f"   AVISO: la pagina tardo mas de {TIEMPO_MAXIMO_CARGA}s en cargar; se lee lo que haya llegado")
+        try:
+            driver.execute_script("window.stop();")
+        except WebDriverException:
+            pass
 
 
 def conectar_chrome():
@@ -264,6 +285,7 @@ def conectar_chrome():
                 # Ningun execute_script puede bloquear el bucle indefinidamente:
                 # si tarda mas de la cuenta, Selenium lanza TimeoutException.
                 driver.set_script_timeout(TIEMPO_MAXIMO_SCRIPT)
+                driver.set_page_load_timeout(TIEMPO_MAXIMO_CARGA)
                 print("✓ Conectado a Chrome")
                 return driver
             except Exception as e:
@@ -547,7 +569,7 @@ def verificar_disponibilidad_ticketmaster(driver, url):
     """
     try:
         print(f"\n-> Navegando a Ticketmaster: {url}")
-        driver.get(url)
+        navegar(driver, url)
         time.sleep(3)
 
         nombre_evento = obtener_nombre_evento(driver)
@@ -646,7 +668,7 @@ def verificar_disponibilidad_taquillalive_details(driver, url):
     """
     try:
         print(f"\n→ Navegando a TaquillalLive (Details): {url}")
-        driver.get(url)
+        navegar(driver, url)
         time.sleep(3)
 
         # Obtener nombre del evento
@@ -688,7 +710,7 @@ def verificar_disponibilidad_taquillalive_book(driver, url):
     """
     try:
         print(f"\n→ Navegando a TaquillalLive (Book): {url}")
-        driver.get(url)
+        navegar(driver, url)
         time.sleep(4)  # Esperar más tiempo para que cargue el mapa
 
         # Obtener nombre del evento
@@ -977,7 +999,7 @@ def contar_articulos_pasala(driver, url):
     """
     try:
         print(f"\n→ Navegando a Pásala: {url}")
-        driver.get(url)
+        navegar(driver, url)
 
         try:
             WebDriverWait(driver, 5).until(
@@ -1081,7 +1103,7 @@ def buscar_disponibilidad_pasala(driver, url):
     """
     try:
         print(f"\n→ Navegando a búsqueda Pásala: {url}")
-        driver.get(url)
+        navegar(driver, url)
         time.sleep(3)
 
         # Buscar todos los eventos en los resultados de búsqueda
@@ -1180,7 +1202,7 @@ def contar_localidades_disponibles(driver, url):
     """
     try:
         print(f"\n→ Navegando a: {url}")
-        driver.get(url)
+        navegar(driver, url)
         time.sleep(3)
 
         # Detectar tipo de URL
@@ -1290,6 +1312,12 @@ PAUSA_TRAS_DISPONIBILIDAD = 5  # Segundos
 INTERVALO_AVISO_BLOQUEO = 3600  # Segundos
 
 TIEMPO_MAXIMO_SCRIPT = 20  # Segundos maximos para un execute_script
+
+# Espera maxima a que una pagina termine de cargar. Sin fijarlo rige el valor
+# por defecto del estandar WebDriver, 5 minutos: una sola pagina colgada dejaba
+# al bot ciego ese tiempo y retrasaba todas las demas URLs de la ronda. Una
+# carga normal tarda entre 4 y 6 segundos, asi que 30 deja margen de sobra.
+TIEMPO_MAXIMO_CARGA = 30  # Segundos
 
 # Por encima de este numero de secciones se asume que son asientos numerados
 # y no localidades, asi que no se detallan en pantalla.
