@@ -117,7 +117,8 @@ URLS_A_MONITOREAR = [
     "https://tuboletapass4.checkout.tuboleta.com/selection/event/seat?perfId=10230442113890&table=1&productId=10230442107826",
 
     # OMAR COURTZ 12--NOV
-    "https://tbpgpal.checkout.tuboleta.com/selection/event/seat?perfId=10230527903278&productId=10230523214255",
+    # "https://tbpgpal.checkout.tuboleta.com/selection/event/seat?perfId=10230527903278&productId=10230523214255",
+    "https://tbpgpal.checkout.tuboleta.com/selection/event/seat?perfId=10230527903278&table=1&productId=10230523214255",
 
     # OMAR COURTZ 13--NOV
     "https://tbpgpal.checkout.tuboleta.com/selection/event/seat?perfId=10230524219204&productId=10230523214255",
@@ -173,8 +174,8 @@ FILTROS_LOCALIDADES = {
         ['PLATEA A'],
 
     # OMAR COURTZ 12--NOV
-    "https://tbpgpal.checkout.tuboleta.com/selection/event/seat?perfId=10230527903278&productId=10230523214255":
-    # "https://tbpgpal.checkout.tuboleta.com/selection/event/seat?perfId=10230527903278&table=1&productId=10230523214255":
+    # "https://tbpgpal.checkout.tuboleta.com/selection/event/seat?perfId=10230527903278&productId=10230523214255":
+    "https://tbpgpal.checkout.tuboleta.com/selection/event/seat?perfId=10230527903278&table=1&productId=10230523214255":
         ["TRIBUNA", "PLATEA"],
 
     # OMAR COURTZ 13--NOV
