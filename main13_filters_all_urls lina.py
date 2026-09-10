@@ -1,12 +1,12 @@
 import asyncio
-import logging
 import json
+import logging
 import os
 import sys
 import time
-import unicodedata
 from logging.handlers import RotatingFileHandler
 
+import unicodedata
 from selenium import webdriver
 from selenium.common.exceptions import NoSuchElementException, TimeoutException, WebDriverException
 from selenium.webdriver.chrome.options import Options
@@ -67,6 +67,7 @@ def preparar_consola():
             flujo.reconfigure(errors="replace")
         except (AttributeError, ValueError):
             pass
+
 
 URLS_A_MONITOREAR = [
 
