@@ -15,6 +15,9 @@ boletas, detecta cuándo aparecen localidades disponibles y avisa por **Telegram
 - Filtra las localidades encontradas por palabras clave, definidas por URL en
   `FILTROS_LOCALIDADES` (por ejemplo, avisar solo de `TRIBUNA` y `PLATEA`).
 - Envía un mensaje de Telegram cuando hay disponibilidad que coincide con el filtro.
+- Te avisa también si una boletera responde con una verificación anti-bot (el
+  monitor no puede leer ese sitio mientras dure) o con una sala de espera (la venta
+  abrió y hay fila).
 - Se conecta a una ventana de Chrome **que ya tienes abierta y con sesión iniciada**,
   en lugar de abrir un navegador nuevo. Esto reutiliza tus cookies y reduce mucho la
   probabilidad de que las plataformas detecten la automatización.
@@ -22,8 +25,9 @@ boletas, detecta cuándo aparecen localidades disponibles y avisa por **Telegram
 ## Qué NO hace
 
 - **No compra boletas.** No selecciona asientos, no agrega al carrito y no paga.
-  Solo observa y avisa; la compra la haces tú, a mano, en la ventana de Chrome que
-  ya está abierta.
+  Solo observa y avisa; la compra la haces tú, a mano, en **otra pestaña** de la
+  ventana de Chrome del monitor. La pestaña que usa el bot cambia de página en cada
+  consulta, así que si compras en ella te la quitará de las manos.
 - No inicia sesión por ti. Debes estar logueado previamente en el perfil de Chrome
   que usa el monitor.
 - No envía WhatsApp. Ese canal existió (vía CallMeBot) y se retiró; el único canal
@@ -35,7 +39,7 @@ boletas, detecta cuándo aparecen localidades disponibles y avisa por **Telegram
 |---|---|
 | `*.checkout.tuboleta.com` (tuboletapass, breakfast, tbpgpal, ...) | Filas de localidades que no estén marcadas como "Agotado" |
 | `pasala.checkout.tuboleta.com` (reventa) | Casillas de categoría (`seat-cat-checkbox`) que aparezcan activas |
-| `www.ticketmaster.co` | Presencia del botón "Ver entradas" |
+| `www.ticketmaster.co` | Catálogo de sectores que publica la propia página, con los disponibles y los agotados. No necesita pulsar "Ver entradas" |
 | `www.taquillalive.com/performance-details` | Presencia del botón "Compra Tus Tiquetes" |
 | `www.taquillalive.com/book-performance` | Sectores listados en el panel de compra |
 
@@ -188,9 +192,13 @@ rm estado_notificaciones.json
 
 Documentadas a propósito, para que no sorprendan:
 
-- **Ticketmaster reporta el evento, no la localidad.** Solo comprueba si existe el
-  botón "Ver entradas", así que devuelve el nombre del evento. En consecuencia, los
-  filtros por localidad **no funcionan** en URLs de Ticketmaster.
+- **Ticketmaster con sala de espera.** Si un evento abre con cola virtual, el bot te
+  avisa de que la venta abrió, pero no puede decirte qué localidades hay hasta que
+  pase la cola.
+- **Ticketmaster puede cambiar su estructura interna.** El detalle por localidad
+  depende de cómo organiza los datos de su página. Si lo cambia, el bot pasa a un
+  modo sin detalle: avisa "venta abierta [SIN DETALLE]" saltándose los filtros, en
+  vez de quedarse callado.
 - **Falsos positivos.** La lectura de Tuboleta y TaquillaLive se apoya en selectores
   genéricos (`div` con clase `row`) y en la ausencia de la palabra "Agotado". Puede
   contar como localidad algo que no lo es.

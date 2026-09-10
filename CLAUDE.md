@@ -65,14 +65,21 @@ disponible, sin aviso cuando se agota.
 
 ## Ritmo de peticiones: no aumentarlo nunca
 
-La configuración actual —17 URLs por ronda, `driver.get()` con espera fija de 3-4 s,
-sin pausa entre rondas, más `PAUSA_TRAS_DISPONIBILIDAD`— lleva **más de 6 meses
+La configuración actual —una visita por URL y ronda, en secuencia, con espera fija
+de 3-4 s tras cada carga, sin pausa entre rondas, más `PAUSA_TRAS_DISPONIBILIDAD`— lleva **más de 6 meses
 ejecutándose 24/7 sin un solo bloqueo** por parte de las boleteras. Es una línea base
 probada empíricamente y es la referencia a preservar.
 
 Regla dura: **ningún cambio puede aumentar la huella de peticiones** — ni esperas más
 cortas, ni reintentos automáticos, ni recargas extra de página, ni más visitas por
 ronda. Si un cambio lo implicara, avisar antes y no hacerlo por iniciativa propia.
+Añadir URLs a la lista no cuenta: las visitas son secuenciales, así que la ronda se
+alarga pero el ritmo de peticiones por minuto no cambia.
+
+Los límites de tiempo (`TIEMPO_MAXIMO_SCRIPT`, `TIEMPO_MAXIMO_CARGA`) solo acotan
+esperas; nunca reintentan. Si una carga se agota, `navegar()` detiene la página y lee
+lo que haya llegado: el contenido que importa llega mucho antes que el evento de
+carga completa, y descartar la página sería un falso "no hay disponibilidad".
 
 Lo contrario tampoco se hace a la ligera: frenar el bucle "por precaución" cuesta
 capacidad de reacción, y aquí eso cuesta boletas. No añadir pausas entre rondas,
@@ -83,15 +90,47 @@ de IP, pero fue con **otro código, en otro repositorio**, modificado por otra I
 con este. No atribuir aquel incidente a este código ni usarlo para justificar cambios
 de ritmo aquí.
 
+## Ticketmaster: lo que ya se sabe
+
+Descubierto contra páginas reales; conviene no volver a aprenderlo a golpes.
+
+- La página publica su catálogo en el objeto global `App`, ya en el HTML inicial. No
+  hace falta pulsar "Ver entradas": algunos eventos ni siquiera tienen ese botón.
+- La unidad de aviso es el **sector**, no la sección. Las secciones no significan lo
+  mismo en cada recinto: en Calvin Harris son localidades (`119`), en Anuel AA son
+  asientos numerados (251 elementos llamados `1`, `2`…).
+- `sector.available` vale `true` siempre: es un dato de catálogo. La disponibilidad
+  real está en `sector.sections[].available`.
+- El catálogo aparece a distinta profundidad según el evento (nivel 6 en Calvin, 9
+  en Anuel). El recorrido necesita control de ciclos: `App` es Backbone con
+  referencias circulares, y en un evento agotado no hay catálogo y se recorre todo.
+- Los nombres de la página informativa (`evento/x-2026`) **no coinciden** con los de
+  venta (`evento/x-2026-venta-general`): los rangos se parten en pares e impares, las
+  comas pasan a guiones, se añaden sufijos de edad y hay espacios dobles escritos a
+  mano. `normalizar_nombre()` absorbe lo tipográfico; lo estructural no.
+- En estadios (BTS en El Campín) la numeración de bloques se reinicia en cada
+  tribuna: filtrar por número no sirve, hay que filtrar por nombre de tribuna.
+- Ticketmaster carga Cloudflare Turnstile y AWS WAF en **todas** sus páginas. Su
+  presencia no indica bloqueo.
+- `probar_ticketmaster.py` y el monitor comparten la misma pestaña de Chrome: no
+  ejecutar la prueba con el monitor corriendo, se pisan.
+
 ## Pendientes acordados
 
-Por orden, tras la reescritura del README y la deduplicación:
+Hechos: README real, deduplicación, detector de Ticketmaster por sector, detección de
+bloqueo y de sala de espera, normalización de nombres en los filtros, límites de
+tiempo en scripts y cargas de página.
 
-1. Ticketmaster devuelve el nombre del evento en vez de localidades, así que los
-   filtros por localidad no funcionan en esas URLs.
-2. 27 `except:` desnudos (capturan también `KeyboardInterrupt`) y sin logging a
-   archivo: tras una noche corriendo no queda rastro de lo ocurrido.
-3. Sin reconexión: si Chrome se cierra, el bucle gira registrando errores.
-4. Falsos positivos por selectores genéricos (`div` con clase `row`).
-5. Código muerto: `es_pagina_de_fechas`, `obtener_primera_fecha_disponible` y
-   `buscar_disponibilidad_pasala` no se invocan nunca.
+Por orden:
+
+1. Logging a archivo, junto con los 18 `except:` desnudos que quedan (capturan
+   también `KeyboardInterrupt` y convierten errores de código en un falso "no hay
+   disponibilidad") y los emojis que revientan en consolas cp1252 como `cmd.exe`.
+2. Sin reconexión: si Chrome se cierra, el bucle gira registrando errores.
+3. Limpieza: `es_pagina_de_fechas` y `obtener_primera_fecha_disponible` no se llaman
+   nunca (`buscar_disponibilidad_pasala` está dormida, no muerta: se conserva);
+   `requirements.txt` sin versión de `python-telegram-bot` y con `requests` sin uso;
+   el nombre del script lleva espacio y número de versión; restos de git de la
+   reescritura del historial (rama `respaldo-antes-de-limpiar`, stash, `refs/original`).
+4. Falsos positivos por selectores genéricos (`div` con clase `row`) en Tuboleta y
+   TaquillaLive. El más delicado: tocarlo solo verificando contra páginas reales.

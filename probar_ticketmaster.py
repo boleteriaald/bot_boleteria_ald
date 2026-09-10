@@ -7,6 +7,9 @@ Telegram y no toca el bucle de monitoreo.
 
 Requisito: Chrome en modo debug ya abierto (iniciar_chrome_debug.bat).
 
+No lo ejecutes con el monitor corriendo: los dos manejan la misma pestana de
+Chrome y se pisan, y el resultado mezcla paginas de uno y otro.
+
 Uso:
     python probar_ticketmaster.py
     python probar_ticketmaster.py "https://www.ticketmaster.co/event/otro-evento"
@@ -55,5 +58,10 @@ else:
         print(f"AVISARIA por: {', '.join(disponibles)}")
 
 print()
-print("Nota: esta URL debe estar en URLS_A_MONITOREAR para que el bot la revise")
-print("en cada ronda. Ahora mismo solo aparece en FILTROS_LOCALIDADES.")
+if url_final in monitor.URLS_A_MONITOREAR:
+    print("Esta URL esta en URLS_A_MONITOREAR: el bot la revisa en cada ronda.")
+else:
+    print("OJO: esta URL NO esta en URLS_A_MONITOREAR, asi que el bot no la revisa.")
+    print("Agregala a la lista si quieres que entre en la rotacion.")
+    if filtro:
+        print("(Tiene filtro definido, pero sin estar en la lista no sirve de nada.)")
