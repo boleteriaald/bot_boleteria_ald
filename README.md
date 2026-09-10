@@ -188,6 +188,35 @@ basta con borrar el archivo de estado:
 rm estado_notificaciones.json
 ```
 
+## Registro de lo que hace
+
+Además de la consola, el monitor escribe en `logs/monitor.log` (excluido de git):
+
+- una línea por ronda y otra por URL, con cuántas localidades leyó disponibles,
+  agotadas y filtradas;
+- cada aviso enviado y, sobre todo, **los que no se pudieron enviar**;
+- bloqueos anti-bot, salas de espera y cargas de página que se agotaron;
+- cada error, con su traza completa.
+
+El archivo rota al llegar a 5 MB y conserva los 5 anteriores (unos 25 MB en total,
+alrededor de una semana de funcionamiento continuo).
+
+La marca que conviene vigilar es `LECTURA VACIA`: la URL no devolvió ni disponibles
+ni agotadas. Puede ser un evento sin nada que mostrar, pero si una URL la repite
+ronda tras ronda, lo normal es que su lectura se haya roto.
+
+Para verlo en vivo desde PowerShell:
+
+```powershell
+Get-Content logs\monitor.log -Tail 40 -Wait
+```
+
+Y para quedarte solo con lo importante:
+
+```powershell
+Select-String -Path logs\monitor.log -Pattern "ERROR|WARNING|AVISO|LECTURA VACIA"
+```
+
 ## Limitaciones conocidas
 
 Documentadas a propósito, para que no sorprendan:
@@ -204,8 +233,6 @@ Documentadas a propósito, para que no sorprendan:
   contar como localidad algo que no lo es.
 - **Sin reconexión.** Si cierras Chrome o se cae la sesión, el bucle sigue girando y
   registrando errores en vez de reconectar.
-- **Solo consola.** No hay registro en archivo, así que tras una noche corriendo no
-  queda rastro de lo ocurrido.
 - **Configuración a mano.** `URLS_A_MONITOREAR` y `FILTROS_LOCALIDADES` son dos listas
   separadas dentro del código; es fácil que se desincronicen.
 

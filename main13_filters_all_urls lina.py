@@ -1,8 +1,11 @@
 import asyncio
+import logging
 import json
 import os
+import sys
 import time
 import unicodedata
+from logging.handlers import RotatingFileHandler
 
 from selenium import webdriver
 from selenium.common.exceptions import NoSuchElementException, TimeoutException, WebDriverException
@@ -14,6 +17,56 @@ from telegram import Bot
 from telegram.error import TelegramError
 
 from config import TELEGRAM_BOT_TOKEN, TELEGRAM_CHAT_ID
+
+# ============================================================
+# REGISTRO EN ARCHIVO
+# ============================================================
+# La consola muestra lo mismo de siempre. El archivo guarda un resumen
+# compacto (una linea por URL y ronda) mas los avisos, bloqueos y errores
+# con su traza completa. Sin el, tras una noche corriendo no quedaba rastro:
+# el cuelgue de BTS y el falso negativo de Anuel solo se vieron porque el
+# usuario estaba mirando la consola en ese momento.
+#
+# Al importar el modulo (p. ej. desde probar_ticketmaster.py) no se escribe
+# nada: el archivo solo se activa al lanzar el monitor.
+log = logging.getLogger("monitor")
+log.addHandler(logging.NullHandler())
+
+CARPETA_LOGS = os.path.join(os.path.dirname(os.path.abspath(__file__)), "logs")
+ARCHIVO_LOG = os.path.join(CARPETA_LOGS, "monitor.log")
+# Rota al llegar a 5 MB y conserva los 5 anteriores: unos 25 MB como maximo.
+# Con una linea por URL y ronda eso cubre alrededor de una semana 24/7.
+TAMANO_MAXIMO_LOG = 5 * 1024 * 1024
+LOGS_CONSERVADOS = 5
+
+
+def configurar_registro():
+    """Activa la escritura del registro en logs/monitor.log, con rotacion."""
+    os.makedirs(CARPETA_LOGS, exist_ok=True)
+    manejador = RotatingFileHandler(
+        ARCHIVO_LOG, maxBytes=TAMANO_MAXIMO_LOG, backupCount=LOGS_CONSERVADOS, encoding="utf-8"
+    )
+    manejador.setFormatter(
+        logging.Formatter("%(asctime)s %(levelname)-7s %(message)s", "%Y-%m-%d %H:%M:%S")
+    )
+    log.addHandler(manejador)
+    log.setLevel(logging.INFO)
+
+
+def preparar_consola():
+    """
+    Evita que un emoji tumbe el monitor en consolas que no los soportan.
+
+    En cmd.exe la codificacion es cp1252 y el primer print con un emoji
+    lanzaba UnicodeEncodeError. Con errors='replace' el caracter que no se
+    puede mostrar sale como '?' y el programa sigue. En consolas UTF-8, como
+    la de PyCharm, no cambia nada.
+    """
+    for flujo in (sys.stdout, sys.stderr):
+        try:
+            flujo.reconfigure(errors="replace")
+        except (AttributeError, ValueError):
+            pass
 
 URLS_A_MONITOREAR = [
 
@@ -230,9 +283,11 @@ async def enviar_telegram(mensaje):
 
     except TelegramError as e:
         print(f"✗ Error de Telegram: {e}")
+        log.error(f"Error de Telegram: {e}")
         return False
     except Exception as e:
         print(f"✗ Error al enviar Telegram: {e}")
+        log.exception("Error al enviar Telegram")
         return False
 
 
@@ -243,11 +298,12 @@ def enviar_notificacion(mensaje):
     Envuelve la funcion async para poder llamarla desde el bucle sincrono.
     """
     try:
-        # Ejecutar función async
-        asyncio.run(enviar_telegram(mensaje))
-        return True
+        # Se devuelve el resultado real del envio. Antes se devolvia True aunque
+        # Telegram hubiera fallado, y el fallo quedaba invisible.
+        return asyncio.run(enviar_telegram(mensaje))
     except Exception as e:
         print(f"✗ Error: {e}")
+        log.exception("Error al enviar la notificacion")
         return False
 
 
@@ -268,6 +324,7 @@ def navegar(driver, url):
         driver.get(url)
     except TimeoutException:
         print(f"   AVISO: la pagina tardo mas de {TIEMPO_MAXIMO_CARGA}s en cargar; se lee lo que haya llegado")
+        log.warning(f"Carga de pagina agotada ({TIEMPO_MAXIMO_CARGA}s), se lee lo que haya llegado | {url}")
         try:
             driver.execute_script("window.stop();")
         except WebDriverException:
@@ -288,6 +345,7 @@ def conectar_chrome():
                 driver.set_script_timeout(TIEMPO_MAXIMO_SCRIPT)
                 driver.set_page_load_timeout(TIEMPO_MAXIMO_CARGA)
                 print("✓ Conectado a Chrome")
+                log.info("Conectado a Chrome")
                 return driver
             except Exception as e:
                 intentos += 1
@@ -298,6 +356,7 @@ def conectar_chrome():
                     raise e
     except Exception as e:
         print(f"✗ Error al conectar a Chrome: {e}")
+        log.error(f"No se pudo conectar a Chrome: {e}")
         print("\nAsegúrate de haber ejecutado: iniciar_chrome_debug.bat")
         return None
 
@@ -579,6 +638,7 @@ def verificar_disponibilidad_ticketmaster(driver, url):
         bloqueado, motivo = detectar_bloqueo(driver)
         if bloqueado:
             print(f"   BLOQUEO detectado: {motivo}")
+            log.warning(f"BLOQUEO anti-bot en Ticketmaster ({motivo}) | {url}")
             return [], [], url
 
         datos = driver.execute_script(JS_SECTORES_TICKETMASTER)
@@ -629,9 +689,11 @@ def verificar_disponibilidad_ticketmaster(driver, url):
         en_cola, senal_cola = detectar_sala_espera(texto_pagina)
         if en_cola:
             print(f"   SALA DE ESPERA detectada ({senal_cola}) - LA VENTA ESTA ABIERTA")
+            log.warning(f"SALA DE ESPERA ({senal_cola}): la venta abrio | {url}")
             return [f"{nombre_evento} - SALA DE ESPERA, la venta abrio {MARCADOR_SIN_DETALLE}"], [], url
 
         print("   AVISO: no se pudo leer el detalle por localidad, se usa el metodo antiguo")
+        log.warning(f"Ticketmaster sin catalogo legible, modo sin detalle | {url}")
         try:
             driver.find_element(By.XPATH,
                                 "//button[contains(text(), 'Ver entradas')] | "
@@ -642,8 +704,9 @@ def verificar_disponibilidad_ticketmaster(driver, url):
             print("   Boton 'Ver entradas' ausente - AGOTADO / SIN VENTA")
             return [], [nombre_evento], url
 
-    except WebDriverException as e:
+    except Exception as e:
         print(f"Error al verificar disponibilidad en Ticketmaster: {e}")
+        log.exception(f"Error en Ticketmaster: {url}")
         return [], [], url
 
 
@@ -678,7 +741,7 @@ def verificar_disponibilidad_taquillalive_details(driver, url):
             nombre_evento = driver.find_element(By.XPATH,
                                                 "//h1 | //h2 | //div[@class='event-title'] | //span[@class='artist-name']"
                                                 ).text.strip()
-        except:
+        except WebDriverException:
             nombre_evento = "Evento TaquillalLive"
 
         print(f"   Evento: {nombre_evento}")
@@ -695,12 +758,13 @@ def verificar_disponibilidad_taquillalive_details(driver, url):
             print(f"   ✅ Botón 'Compra Tus Tiquetes' encontrado - DISPONIBLE")
             return [nombre_evento], [], url
 
-        except:
+        except WebDriverException:
             print(f"   ❌ Botón 'Compra Tus Tiquetes' NO encontrado - AGOTADO")
             return [], [nombre_evento], url
 
     except Exception as e:
         print(f"✗ Error al verificar disponibilidad en TaquillalLive (Details): {e}")
+        log.exception(f"Error en TaquillaLive (details): {url}")
         return [], [], url
 
 
@@ -720,11 +784,11 @@ def verificar_disponibilidad_taquillalive_book(driver, url):
             nombre_evento = driver.find_element(By.XPATH,
                                                 "//h1 | //h2[@class='event-title'] | //div[@class='title']"
                                                 ).text.strip()
-        except:
+        except WebDriverException:
             try:
                 # Obtener del título de la página
                 nombre_evento = driver.title.split('|')[0].strip() if '|' in driver.title else driver.title
-            except:
+            except WebDriverException:
                 nombre_evento = "Evento TaquillalLive"
 
         if nombre_evento:
@@ -814,7 +878,7 @@ def verificar_disponibilidad_taquillalive_book(driver, url):
                                                        ".//select | .//button | .//a[contains(@class, 'btn')]"
                                                        )
                         # Si hay un elemento interactivo, probablemente esté disponible
-                    except:
+                    except WebDriverException:
                         # Si no hay elemento interactivo y no es "Filtrar", podría estar agotado
                         if "Filtrar" not in nombre_sector:
                             pass
@@ -827,7 +891,10 @@ def verificar_disponibilidad_taquillalive_book(driver, url):
                         localidades_agotadas.append(nombre_sector)
                         print(f"   ❌ {nombre_sector}")
 
-                except Exception as e:
+                except WebDriverException:
+                    continue
+                except Exception:
+                    log.exception(f"Error inesperado procesando un sector de TaquillaLive: {url}")
                     continue
 
             print(f"\n📊 RESUMEN:")
@@ -843,10 +910,12 @@ def verificar_disponibilidad_taquillalive_book(driver, url):
 
         except Exception as e:
             print(f"   ⚠️ Error buscando sectores: {e}")
+            log.exception(f"Error buscando sectores en TaquillaLive (book): {url}")
             return [], [nombre_evento], url
 
     except Exception as e:
         print(f"✗ Error al verificar disponibilidad en TaquillalLive (Book): {e}")
+        log.exception(f"Error en TaquillaLive (book): {url}")
         import traceback
         traceback.print_exc()
         return [], [], url
@@ -857,7 +926,7 @@ def es_pagina_de_fechas(driver):
         fechas = driver.find_elements(By.XPATH,
                                       "//a[contains(text(), 'jul')] | //a[contains(text(), 'ago')] | //a[contains(text(), 'sep')] | //a[contains(text(), 'oct')] | //button[contains(@class, 'date')]")
         return len(fechas) > 0
-    except:
+    except WebDriverException:
         return False
 
 
@@ -1008,7 +1077,7 @@ def contar_articulos_pasala(driver, url):
                     (By.CSS_SELECTOR, "input[id*='seat-cat-checkbox'][type='checkbox']")
                 )
             )
-        except:
+        except WebDriverException:
             print("   ⚠️ Timeout esperando checkboxes...")
             time.sleep(2)
 
@@ -1057,11 +1126,11 @@ def contar_articulos_pasala(driver, url):
                         label = driver.find_element(By.XPATH, f"//label[@for='{checkbox_id}']")
                         span_name = label.find_element(By.CSS_SELECTOR, "span.name")
                         nombre_categoria = span_name.text.strip()
-                    except:
+                    except WebDriverException:
                         try:
                             label = driver.find_element(By.XPATH, f"//label[@for='{checkbox_id}']")
                             nombre_categoria = label.text.strip()
-                        except:
+                        except WebDriverException:
                             nombre_categoria = None
 
                 # Si aún sigue vacío, usar fallback
@@ -1079,6 +1148,7 @@ def contar_articulos_pasala(driver, url):
 
             except Exception as e:
                 print(f"   ⚠️ Error procesando checkbox {idx}: {e}")
+                log.exception(f"Error procesando una categoria de Pasala: {url}")
                 continue
 
         print(f"\n📊 RESUMEN:")
@@ -1094,6 +1164,7 @@ def contar_articulos_pasala(driver, url):
 
     except Exception as e:
         print(f"✗ Error al contar artículos Pásala: {e}")
+        log.exception(f"Error en Pasala: {url}")
         return [], [], url
 
 
@@ -1129,14 +1200,14 @@ def buscar_disponibilidad_pasala(driver, url):
                 # Intento 1: h2
                 try:
                     nombre_evento = evento.find_element(By.XPATH, ".//h2").text.strip()
-                except:
+                except WebDriverException:
                     pass
 
                 # Intento 2: h3
                 if not nombre_evento:
                     try:
                         nombre_evento = evento.find_element(By.XPATH, ".//h3").text.strip()
-                    except:
+                    except WebDriverException:
                         pass
 
                 # Intento 3: span con clase event-name o title
@@ -1144,7 +1215,7 @@ def buscar_disponibilidad_pasala(driver, url):
                     try:
                         nombre_evento = evento.find_element(By.XPATH,
                                                             ".//span[@class='event-name'] | .//span[@class='title'] | .//p[@class='title']").text.strip()
-                    except:
+                    except WebDriverException:
                         pass
 
                 # Intento 4: Obtener todo el texto y tomar la primera línea
@@ -1167,12 +1238,13 @@ def buscar_disponibilidad_pasala(driver, url):
                                                        ".//button[contains(text(), 'Comprar')] | .//a[contains(text(), 'Comprar')] | .//button[contains(@class, 'buy')] | .//button[contains(text(), 'COMPRAR')]")
                     eventos_disponibles.append(nombre_evento)
                     print(f"   ✅ {nombre_evento}")
-                except:
+                except WebDriverException:
                     eventos_agotados.append(nombre_evento)
                     print(f"   ❌ {nombre_evento}")
 
             except Exception as e:
                 print(f"   ⚠️ Error procesando evento {idx + 1}: {e}")
+                log.exception(f"Error procesando un evento de la busqueda de Pasala: {url}")
                 continue
 
         print(f"\n📊 RESUMEN:")
@@ -1188,6 +1260,7 @@ def buscar_disponibilidad_pasala(driver, url):
 
     except Exception as e:
         print(f"✗ Error al buscar disponibilidad en búsqueda Pásala: {e}")
+        log.exception(f"Error en la busqueda de Pasala: {url}")
         return [], [], url
 
 
@@ -1261,7 +1334,10 @@ def contar_localidades_disponibles(driver, url):
                 else:
                     localidades_disponibles.append(primera_linea)
 
-            except:
+            except WebDriverException:
+                continue
+            except Exception:
+                log.exception("Error inesperado procesando una fila de localidad")
                 continue
 
         # Eliminar duplicados
@@ -1282,6 +1358,7 @@ def contar_localidades_disponibles(driver, url):
 
     except Exception as e:
         print(f"✗ Error: {e}")
+        log.exception(f"Error en Tuboleta: {url}")
         return [], [], url
 
 
@@ -1446,136 +1523,169 @@ def monitorear_urls(driver):
             print(f"\n{'=' * 70}")
             print(f"[Intento {intentos}/{max_intentos}] - {time.strftime('%H:%M:%S')}")
             print("=" * 70)
+            log.info(f"Ronda {intentos} - {len(URLS_A_MONITOREAR)} URLs")
 
             # Revisar cada URL
             for idx, url in enumerate(URLS_A_MONITOREAR, 1):
                 print(f"\n[URL {idx}/{len(URLS_A_MONITOREAR)}]")
+                # Cada URL va aislada: si una falla, se registra y se sigue con la
+                # siguiente. Antes un solo try envolvia la ronda entera, y un error
+                # en la URL 5 saltaba todas las posteriores y reiniciaba desde la 1;
+                # si se repetia, las URLs de detras no se revisaban nunca.
+                try:
 
-                disponibles = []
-                agotadas = []
-                url_final = url
-                tipo = ""
+                    disponibles = []
+                    agotadas = []
+                    url_final = url
+                    tipo = ""
 
-                # Detectar tipo de URL y obtener disponibilidad
-                if es_url_busqueda_pasala(url):
-                    disponibles, agotadas, url_final = buscar_disponibilidad_pasala(driver, url)
-                    tipo = 'Pásala Búsqueda'
-                elif es_url_pasala(url):
-                    disponibles, agotadas, url_final = contar_articulos_pasala(driver, url)
-                    tipo = 'Pásala'
-                elif es_url_taquillalive_book(url):
-                    disponibles, agotadas, url_final = verificar_disponibilidad_taquillalive_book(driver, url)
-                    tipo = 'TaquillalLive (Book)'
-                elif es_url_taquillalive_performance_details(url):
-                    disponibles, agotadas, url_final = verificar_disponibilidad_taquillalive_details(driver, url)
-                    tipo = 'TaquillalLive (Details)'
-                elif es_url_ticketmaster(url):
-                    disponibles, agotadas, url_final = verificar_disponibilidad_ticketmaster(driver, url)
-                    tipo = 'Ticketmaster'
-                elif es_url_tbpgpal(url):
-                    disponibles, agotadas, url_final = contar_localidades_disponibles(driver, url)
-                    tipo = 'TbpGpal'
-                else:
-                    disponibles, agotadas, url_final = contar_localidades_disponibles(driver, url)
-                    tipo = 'Tuboleta'
-
-                # ✅ NUEVO: Aplicar filtro de localidades
-                disponibles_filtrados = filtrar_localidades(disponibles, url_final)
-
-                # Mostrar info del filtrado
-                if url_final in FILTROS_LOCALIDADES and FILTROS_LOCALIDADES[url_final]:
-                    filtro_info = ", ".join(FILTROS_LOCALIDADES[url_final])
-                    print(f"   📌 Filtro activo: {filtro_info}")
-                    print(f"   ✓ Disponibles totales: {len(disponibles)}")
-                    print(f"   ✓ Disponibles filtrados: {len(disponibles_filtrados)}")
-
-                # Un desafio anti-bot se lee como 'no hay nada'. Sin este aviso,
-                # el monitor quedaria ciego sin que nadie se entere.
-                if not disponibles and not agotadas:
-                    bloqueado, motivo = detectar_bloqueo(driver)
-                    if bloqueado:
-                        print(f"   BLOQUEO detectado en {url_final}: {motivo}")
-                        avisar_bloqueo(estado_bloqueo, url_final, motivo)
-
-                # ✅ Deduplicación: avisar solo de lo nuevo o de lo que toca recordar
-                nuevas, recordatorios, ya_avisadas = localidades_a_notificar(
-                    estado, url_final, disponibles_filtrados
-                )
-                a_notificar = nuevas + recordatorios
-
-                if ya_avisadas and not a_notificar:
-                    print(f"   🔕 {len(ya_avisadas)} disponibles, ya notificadas (en silencio)")
-
-                if a_notificar:
-                    print()
-                    print("=" * 70)
-                    if nuevas:
-                        print("🎉 ¡DISPONIBILIDAD DETECTADA (COINCIDE CON FILTRO)!")
+                    # Detectar tipo de URL y obtener disponibilidad
+                    if es_url_busqueda_pasala(url):
+                        disponibles, agotadas, url_final = buscar_disponibilidad_pasala(driver, url)
+                        tipo = 'Pásala Búsqueda'
+                    elif es_url_pasala(url):
+                        disponibles, agotadas, url_final = contar_articulos_pasala(driver, url)
+                        tipo = 'Pásala'
+                    elif es_url_taquillalive_book(url):
+                        disponibles, agotadas, url_final = verificar_disponibilidad_taquillalive_book(driver, url)
+                        tipo = 'TaquillalLive (Book)'
+                    elif es_url_taquillalive_performance_details(url):
+                        disponibles, agotadas, url_final = verificar_disponibilidad_taquillalive_details(driver, url)
+                        tipo = 'TaquillalLive (Details)'
+                    elif es_url_ticketmaster(url):
+                        disponibles, agotadas, url_final = verificar_disponibilidad_ticketmaster(driver, url)
+                        tipo = 'Ticketmaster'
+                    elif es_url_tbpgpal(url):
+                        disponibles, agotadas, url_final = contar_localidades_disponibles(driver, url)
+                        tipo = 'TbpGpal'
                     else:
-                        print("🔔 RECORDATORIO: SIGUE DISPONIBLE")
-                    print("=" * 70)
+                        disponibles, agotadas, url_final = contar_localidades_disponibles(driver, url)
+                        tipo = 'Tuboleta'
 
-                    # Obtener nombre del evento y fecha
-                    nombre_evento = obtener_nombre_evento(driver)
-                    fecha_evento = obtener_fecha_evento(driver)
+                    # ✅ NUEVO: Aplicar filtro de localidades
+                    disponibles_filtrados = filtrar_localidades(disponibles, url_final)
 
-                    print(f"   Evento: {nombre_evento}")
-                    if fecha_evento:
-                        print(f"   Fecha: {fecha_evento}")
+                    # Una linea por URL y ronda. "LECTURA VACIA" (ni disponibles ni
+                    # agotadas) es lo que hay que vigilar: puede ser un evento sin
+                    # nada que mostrar, pero si una URL lo repite ronda tras ronda,
+                    # lo normal es que se haya roto su lectura.
+                    vacia = " | LECTURA VACIA" if not disponibles and not agotadas else ""
+                    log.info(
+                        f"{tipo} | disp={len(disponibles)} agot={len(agotadas)} "
+                        f"filtradas={len(disponibles_filtrados)}{vacia} | {url_final}"
+                    )
 
-                    # Construir mensaje
-                    if nuevas:
-                        mensaje = f"🎉 ¡DISPONIBILIDAD DETECTADA!\n\n"
-                    else:
-                        mensaje = f"🔔 SIGUE DISPONIBLE (recordatorio)\n\n"
+                    # Mostrar info del filtrado
+                    if url_final in FILTROS_LOCALIDADES and FILTROS_LOCALIDADES[url_final]:
+                        filtro_info = ", ".join(FILTROS_LOCALIDADES[url_final])
+                        print(f"   📌 Filtro activo: {filtro_info}")
+                        print(f"   ✓ Disponibles totales: {len(disponibles)}")
+                        print(f"   ✓ Disponibles filtrados: {len(disponibles_filtrados)}")
 
-                    mensaje += f"📌 {nombre_evento}\n"
+                    # Un desafio anti-bot se lee como 'no hay nada'. Sin este aviso,
+                    # el monitor quedaria ciego sin que nadie se entere.
+                    if not disponibles and not agotadas:
+                        bloqueado, motivo = detectar_bloqueo(driver)
+                        if bloqueado:
+                            print(f"   BLOQUEO detectado en {url_final}: {motivo}")
+                            log.warning(f"BLOQUEO anti-bot ({motivo}) | {url_final}")
+                            avisar_bloqueo(estado_bloqueo, url_final, motivo)
 
-                    if fecha_evento:
-                        mensaje += f"📅 {fecha_evento}\n"
+                    # ✅ Deduplicación: avisar solo de lo nuevo o de lo que toca recordar
+                    nuevas, recordatorios, ya_avisadas = localidades_a_notificar(
+                        estado, url_final, disponibles_filtrados
+                    )
+                    a_notificar = nuevas + recordatorios
 
-                    mensaje += f"\n"
+                    if ya_avisadas and not a_notificar:
+                        print(f"   🔕 {len(ya_avisadas)} disponibles, ya notificadas (en silencio)")
 
-                    # Las tres ramas anteriores generaban el mismo texto; se unifican.
-                    etiqueta = 'TUBOLETA' if tipo == 'Tuboleta' else tipo.upper()
-                    mensaje += f"📍 {etiqueta} - {len(a_notificar)} disponibles\n"
-                    for loc in a_notificar[:5]:
-                        mensaje += f"  • {loc}\n"
-                    if len(a_notificar) > 5:
-                        mensaje += f"  ... +{len(a_notificar) - 5} más\n"
-                    if ya_avisadas:
-                        mensaje += f"  (+{len(ya_avisadas)} ya avisadas antes)\n"
-                    mensaje += f"  🔗 {url_final}\n\n"
+                    if a_notificar:
+                        print()
+                        print("=" * 70)
+                        if nuevas:
+                            print("🎉 ¡DISPONIBILIDAD DETECTADA (COINCIDE CON FILTRO)!")
+                        else:
+                            print("🔔 RECORDATORIO: SIGUE DISPONIBLE")
+                        print("=" * 70)
 
-                    mensaje += f"⏰ {time.strftime('%H:%M:%S')}"
+                        # Obtener nombre del evento y fecha
+                        nombre_evento = obtener_nombre_evento(driver)
+                        fecha_evento = obtener_fecha_evento(driver)
 
-                    print()
-                    print(f"📱 Enviando Telegram...")
-                    print(f"   Localidades en el aviso: {len(a_notificar)}")
-                    enviar_notificacion(mensaje)
+                        print(f"   Evento: {nombre_evento}")
+                        if fecha_evento:
+                            print(f"   Fecha: {fecha_evento}")
 
-                    # Persistir tras avisar: si el script muere ahora, al reiniciar
-                    # no repite los avisos ya enviados.
-                    guardar_estado(estado)
-                    print()
-                    print("✅ Notificación enviada. Continuando monitoreo...")
+                        # Construir mensaje
+                        if nuevas:
+                            mensaje = f"🎉 ¡DISPONIBILIDAD DETECTADA!\n\n"
+                        else:
+                            mensaje = f"🔔 SIGUE DISPONIBLE (recordatorio)\n\n"
 
-                elif disponibles and url_final in FILTROS_LOCALIDADES:
-                    # Hay disponibles pero no coinciden con el filtro
-                    print(f"   ℹ️ Disponibles detectados pero NO coinciden con filtro")
+                        mensaje += f"📌 {nombre_evento}\n"
 
-                # Antes esta pausa ocurria tras cada notificacion. Con la
-                # deduplicacion se avisa mucho menos, asi que se ata a la
-                # disponibilidad y no al aviso: el bucle mantiene exactamente
-                # el mismo ritmo de consultas que antes.
-                if disponibles_filtrados:
-                    time.sleep(PAUSA_TRAS_DISPONIBILIDAD)
+                        if fecha_evento:
+                            mensaje += f"📅 {fecha_evento}\n"
+
+                        mensaje += f"\n"
+
+                        # Las tres ramas anteriores generaban el mismo texto; se unifican.
+                        etiqueta = 'TUBOLETA' if tipo == 'Tuboleta' else tipo.upper()
+                        mensaje += f"📍 {etiqueta} - {len(a_notificar)} disponibles\n"
+                        for loc in a_notificar[:5]:
+                            mensaje += f"  • {loc}\n"
+                        if len(a_notificar) > 5:
+                            mensaje += f"  ... +{len(a_notificar) - 5} más\n"
+                        if ya_avisadas:
+                            mensaje += f"  (+{len(ya_avisadas)} ya avisadas antes)\n"
+                        mensaje += f"  🔗 {url_final}\n\n"
+
+                        mensaje += f"⏰ {time.strftime('%H:%M:%S')}"
+
+                        print()
+                        print(f"📱 Enviando Telegram...")
+                        print(f"   Localidades en el aviso: {len(a_notificar)}")
+                        enviado = enviar_notificacion(mensaje)
+
+                        # Persistir tras avisar: si el script muere ahora, al reiniciar
+                        # no repite los avisos ya enviados.
+                        guardar_estado(estado)
+                        print()
+                        if enviado:
+                            print("✅ Notificación enviada. Continuando monitoreo...")
+                            log.info(
+                                f"AVISO enviado | nuevas={nuevas} recordatorios={recordatorios} | {url_final}"
+                            )
+                        else:
+                            print("✗ El aviso NO se pudo enviar por Telegram")
+                            log.error(
+                                f"AVISO NO ENVIADO | nuevas={nuevas} recordatorios={recordatorios} | {url_final}"
+                            )
+
+                    elif disponibles and url_final in FILTROS_LOCALIDADES:
+                        # Hay disponibles pero no coinciden con el filtro
+                        print(f"   ℹ️ Disponibles detectados pero NO coinciden con filtro")
+
+                    # Antes esta pausa ocurria tras cada notificacion. Con la
+                    # deduplicacion se avisa mucho menos, asi que se ata a la
+                    # disponibilidad y no al aviso: el bucle mantiene exactamente
+                    # el mismo ritmo de consultas que antes.
+                    if disponibles_filtrados:
+                        time.sleep(PAUSA_TRAS_DISPONIBILIDAD)
+                except Exception as e:
+                    print(f"✗ Error procesando {url}: {e}")
+                    log.exception(f"Error procesando {url}")
+                    # La misma pausa que antes seguia a un error: no se acelera el
+                    # ritmo de consultas por el hecho de continuar con la siguiente.
+                    time.sleep(5)
 
             # Fin de ronda: se persisten tambien los contadores de ausencia
             guardar_estado(estado)
 
         except Exception as e:
             print(f"✗ Error en monitoreo: {e}")
+            log.exception("Error en la ronda, fuera del procesamiento de URLs")
             time.sleep(5)
 
     print("\n✗ Máximo de intentos alcanzado (10000000)")
@@ -1602,7 +1712,7 @@ def obtener_nombre_evento(driver):
                 nombre = driver.find_element(By.XPATH, selector).text.strip()
                 if nombre and len(nombre) > 3:
                     return nombre
-            except:
+            except WebDriverException:
                 continue
 
         # Si no encuentra por XPath, intentar del título de la página
@@ -1613,7 +1723,10 @@ def obtener_nombre_evento(driver):
 
         return "Evento"
 
-    except:
+    except WebDriverException:
+        return "Evento"
+    except Exception:
+        log.exception("Error inesperado obteniendo el nombre del evento")
         return "Evento"
 
 
@@ -1646,12 +1759,15 @@ def obtener_fecha_evento(driver):
                     elif '202' in texto:  # Contiene año
                         fecha = texto
                         break
-            except:
+            except WebDriverException:
                 continue
 
         return fecha if fecha else None
 
-    except:
+    except WebDriverException:
+        return None
+    except Exception:
+        log.exception("Error inesperado obteniendo la fecha del evento")
         return None
 
 
@@ -1728,9 +1844,14 @@ def filtrar_localidades(disponibles, url):
 # ============================================================
 
 if __name__ == "__main__":
+    preparar_consola()
+    configurar_registro()
+    log.info(f"Monitor iniciado: {len(URLS_A_MONITOREAR)} URLs en seguimiento")
+
     print("\n" + "=" * 70)
     print("MONITOR DE DISPONIBILIDAD - TUBOLETA Y PÁSALA")
     print("=" * 70)
+    print(f"Registro en: {ARCHIVO_LOG}")
 
     driver = conectar_chrome()
     if driver:
@@ -1742,9 +1863,13 @@ if __name__ == "__main__":
                 print("\n✗ Script finalizado por límite de intentos")
         except KeyboardInterrupt:
             print("\n⚠ Script detenido por el usuario")
+            log.info("Monitor detenido por el usuario")
         except Exception as e:
             print(f"\n✗ Error: {e}")
+            log.exception("El monitor se detuvo por un error")
         finally:
             print("\nScript finalizado")
+            log.info("Monitor finalizado")
     else:
         print("\n✗ Error de conexión")
+        log.error("El monitor no arranco: sin conexion con Chrome")
