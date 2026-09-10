@@ -16,12 +16,11 @@ from config import TELEGRAM_BOT_TOKEN, TELEGRAM_CHAT_ID
 
 URLS_A_MONITOREAR = [
 
+    # MANÁ
+    "https://www.ticketmaster.co/event/mana-2026-venta-general",
+
     # ANUEL AA
-    "https://www.ticketmaster.co/event/anuel-aa-venta-general",
-
-    "https://www.ticketmaster.co/event/halloween-town",
-
-    "https://www.ticketmaster.co/event/jamiroquai-general-sale",
+    # "https://www.ticketmaster.co/event/anuel-aa-venta-general",
 
     # CALVIN HARIS
     "https://www.ticketmaster.co/event/calvin-harris-venta-general",
@@ -115,8 +114,9 @@ URLS_A_MONITOREAR = [
 
 FILTROS_LOCALIDADES = {
 
-    "https://www.ticketmaster.co/event/jamiroquai-general-sale":
-        ['PLATEA 1'],
+    # MANÁ
+    "https://www.ticketmaster.co/event/mana-2026-venta-general":
+        ['PLATEA A'],
 
     # OMAR COURTZ 12--NOV
     "https://tbpgpal.checkout.tuboleta.com/selection/event/seat?perfId=10230527903278&productId=10230523214255":
@@ -132,7 +132,7 @@ FILTROS_LOCALIDADES = {
     # "https://tuboletapass.checkout.tuboleta.com/selection/event/date?productId=10230355790289":
     "https://tuboletapass.checkout.tuboleta.com/selection/event/seat?perfId=10230355790391&table=1&productId=10230355790289":
         ["302", "307",
-         # "202", "207",
+         "202", "207",
          "PLATEA", "TRIBUNA"],
 
     # KRIS R FUNCIONAL
@@ -158,7 +158,7 @@ FILTROS_LOCALIDADES = {
 
     # CALVIN HARIS
     "https://www.ticketmaster.co/event/calvin-harris-venta-general":
-        ["PLATEA 1", "PLATEA 2", "119"],
+        ["PLATEA 1", "PLATEA 2"],
 
     # GORILLAZ
     "https://www.taquillalive.com/performance-details/?artist=gorillaz&event=TCL.EVN1152.PRF1":
