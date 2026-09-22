@@ -121,16 +121,34 @@ Hechos: README real, deduplicación, detector de Ticketmaster por sector, detecc
 bloqueo y de sala de espera, normalización de nombres en los filtros, límites de
 tiempo en scripts y cargas de página, registro en `logs/monitor.log`, sin `except:`
 desnudos, cada URL aislada en su propio `try`, emojis seguros en consolas cp1252 y
-reintento de los avisos que Telegram no pudo entregar (`deshacer_avisos()`).
+reintento de los avisos que Telegram no pudo entregar (`deshacer_avisos()`) y
+reconexión y relanzamiento automático de Chrome (`sesion_viva()` antes de cada URL,
+`recuperar_sesion()`).
+
+Sobre la reconexión y el relanzamiento:
+
+- Los detectores capturan todas las excepciones y devuelven listas vacías, así que
+  una sesión muerta nunca llega al bucle como error; hay que preguntar por ella.
+- **Contra un Chrome cerrado, un intento de chromedriver tarda 63 s en fallar**
+  (medido). Por eso `conectar_chrome()` y `sesion_viva()` consultan antes el puerto
+  de depuración (`puerto_depuracion_activo()`, milisegundos). Antes, con 10 intentos,
+  el bot pasaba más de 10 minutos ciego.
+- `sesion_viva()` captura `Exception` a propósito: si muere chromedriver, el error es
+  de la conexión HTTP local, no de Selenium.
+- `soltar_sesion()` para chromedriver sin cerrar Chrome; `lanzar_chrome()` usa
+  `cmd /c start`, como el `.bat`, para que Chrome quede independiente. Verificado
+  contra Chrome real.
+- Relanzamiento como mucho cada `INTERVALO_RELANZAMIENTO` (5 min): con un Chrome
+  abierto con el perfil del monitor pero sin modo debug, cada relanzamiento solo
+  abre otra ventana en esa instancia y el puerto nunca se activa.
 
 Por orden:
 
-1. Sin reconexión: si Chrome se cierra, el bucle gira registrando errores.
-2. Limpieza: `es_pagina_de_fechas` y `obtener_primera_fecha_disponible` no se llaman
+1. Limpieza: `es_pagina_de_fechas` y `obtener_primera_fecha_disponible` no se llaman
    nunca (`buscar_disponibilidad_pasala` está dormida, no muerta: se conserva);
    `requirements.txt` sin versión de `python-telegram-bot` y con `requests` sin uso;
    el nombre del script lleva espacio y número de versión; restos de git de la
    reescritura del historial (rama `respaldo-antes-de-limpiar`, stash, `refs/original`).
-3. Falsos positivos por selectores genéricos (`div` con clase `row`) en Tuboleta y
+2. Falsos positivos por selectores genéricos (`div` con clase `row`) en Tuboleta y
    TaquillaLive. El más delicado: tocarlo solo verificando contra páginas reales.
    Evidencia en vivo: Gorillaz en TaquillaLive (book) lee 22 sectores disponibles.

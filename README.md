@@ -18,6 +18,12 @@ boletas, detecta cuándo aparecen localidades disponibles y avisa por **Telegram
 - Te avisa también si una boletera responde con una verificación anti-bot (el
   monitor no puede leer ese sitio mientras dure) o con una sala de espera (la venta
   abrió y hay fila).
+- Si Chrome se cierra o se cae, **lo vuelve a abrir solo** (con el mismo perfil, así
+  que conserva tus sesiones) y te avisa con un único mensaje: "lo relancé". Tarda unos
+  segundos. Si no consigue recuperarlo, te avisa de que el monitor está **ciego** y
+  sigue intentándolo: reconexión cada 30 s, relanzamiento como mucho cada 5 min. Si
+  solo se perdió la conexión y Chrome seguía abierto, reconecta sin molestarte.
+  Mientras tanto no visita ninguna boletera: los intentos son contra el propio Chrome.
 - Se conecta a una ventana de Chrome **que ya tienes abierta y con sesión iniciada**,
   en lugar de abrir un navegador nuevo. Esto reutiliza tus cookies y reduce mucho la
   probabilidad de que las plataformas detecten la automatización.
@@ -35,13 +41,13 @@ boletas, detecta cuándo aparecen localidades disponibles y avisa por **Telegram
 
 ## Plataformas soportadas
 
-| URL | Qué revisa |
-|---|---|
-| `*.checkout.tuboleta.com` (tuboletapass, breakfast, tbpgpal, ...) | Filas de localidades que no estén marcadas como "Agotado" |
-| `pasala.checkout.tuboleta.com` (reventa) | Casillas de categoría (`seat-cat-checkbox`) que aparezcan activas |
-| `www.ticketmaster.co` | Catálogo de sectores que publica la propia página, con los disponibles y los agotados. No necesita pulsar "Ver entradas" |
-| `www.taquillalive.com/performance-details` | Presencia del botón "Compra Tus Tiquetes" |
-| `www.taquillalive.com/book-performance` | Sectores listados en el panel de compra |
+| URL                                                               | Qué revisa                                                                                                               |
+|-------------------------------------------------------------------|--------------------------------------------------------------------------------------------------------------------------|
+| `*.checkout.tuboleta.com` (tuboletapass, breakfast, tbpgpal, ...) | Filas de localidades que no estén marcadas como "Agotado"                                                                |
+| `pasala.checkout.tuboleta.com` (reventa)                          | Casillas de categoría (`seat-cat-checkbox`) que aparezcan activas                                                        |
+| `www.ticketmaster.co`                                             | Catálogo de sectores que publica la propia página, con los disponibles y los agotados. No necesita pulsar "Ver entradas" |
+| `www.taquillalive.com/performance-details`                        | Presencia del botón "Compra Tus Tiquetes"                                                                                |
+| `www.taquillalive.com/book-performance`                           | Sectores listados en el panel de compra                                                                                  |
 
 ## Requisitos
 
@@ -114,24 +120,21 @@ Reglas del filtro:
 
 ## Uso
 
-**Paso 1** — Abre Chrome en modo debugging (esto abre una ventana aparte, con un
-perfil propio en `C:\selenium\ChromeProfile`):
-
-```bash
-./iniciar_chrome_debug.bat
-```
-
-**Paso 2** — En esa ventana, inicia sesión en las plataformas que vayas a monitorear.
-Solo hace falta la primera vez; el perfil conserva la sesión.
-
-**Paso 3** — Con esa ventana abierta, lanza el monitor:
+**Paso 1** — Lanza el monitor. Si Chrome no está abierto en modo debug, lo abre él
+mismo (una ventana aparte, con un perfil propio en `C:\selenium\ChromeProfile`):
 
 ```bash
 python "main13_filters_all_urls lina.py"
 ```
 
+**Paso 2** — La primera vez, inicia sesión en esa ventana de Chrome en las
+plataformas que vayas a monitorear. El perfil la conserva mientras la plataforma no la caduque.
+
+`iniciar_chrome_debug.bat` sigue sirviendo si prefieres abrir Chrome a mano antes.
+
 El script imprime el progreso en consola y no se detiene solo: córtalo con `Ctrl+C`.
-No cierres la ventana de Chrome mientras corre.
+Si cierras la ventana de Chrome con el monitor en marcha, la volverá a abrir: para
+parar de verdad, detén primero el monitor.
 
 ## Cómo funciona por dentro
 
@@ -181,8 +184,8 @@ reinicios: si cortas el script y lo relanzas, no te bombardea con lo que ya sab�
 Para ajustar el comportamiento, en la cabecera del script:
 
 ```python
-INTERVALO_RECORDATORIO = 600        # Segundos entre recordatorios
-LECTURAS_VACIAS_PARA_OLVIDAR = 3    # Lecturas en vacío antes de dar algo por agotado
+INTERVALO_RECORDATORIO = 600  # Segundos entre recordatorios
+LECTURAS_VACIAS_PARA_OLVIDAR = 3  # Lecturas en vacío antes de dar algo por agotado
 ```
 
 Si quieres empezar de cero (por ejemplo, para forzar que te vuelva a avisar de todo),
@@ -235,8 +238,6 @@ Documentadas a propósito, para que no sorprendan:
 - **Falsos positivos.** La lectura de Tuboleta y TaquillaLive se apoya en selectores
   genéricos (`div` con clase `row`) y en la ausencia de la palabra "Agotado". Puede
   contar como localidad algo que no lo es.
-- **Sin reconexión.** Si cierras Chrome o se cae la sesión, el bucle sigue girando y
-  registrando errores en vez de reconectar.
 - **Configuración a mano.** `URLS_A_MONITOREAR` y `FILTROS_LOCALIDADES` son dos listas
   separadas dentro del código; es fácil que se desincronicen.
 

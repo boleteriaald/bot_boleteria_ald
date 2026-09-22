@@ -2,8 +2,10 @@ import asyncio
 import json
 import logging
 import os
+import subprocess
 import sys
 import time
+import urllib.request
 from logging.handlers import RotatingFileHandler
 
 import unicodedata
@@ -292,34 +294,205 @@ def navegar(driver, url):
             pass
 
 
+def puerto_depuracion_activo():
+    """Indica si Chrome responde en su puerto de depuracion. Consulta local, milisegundos."""
+    try:
+        with urllib.request.urlopen(f"http://127.0.0.1:{PUERTO_DEPURACION}/json/version", timeout=2):
+            return True
+    except Exception:
+        return False
+
+
 def conectar_chrome():
+    """
+    Conecta Selenium al Chrome del monitor, o devuelve None si no es posible.
+
+    Antes de pedirle a chromedriver que se enganche se comprueba que el puerto
+    de depuracion responda. Es imprescindible: contra un Chrome cerrado, cada
+    intento de chromedriver tarda 63 segundos en fallar (medido). Antes se
+    hacian 10 intentos seguidos, asi que el bot pasaba mas de 10 minutos ciego
+    antes de rendirse, tambien al arrancar con Chrome cerrado.
+    """
+    limite = time.time() + ESPERA_ARRANQUE_CHROME
+    while not puerto_depuracion_activo():
+        if time.time() >= limite:
+            print("✗ Chrome no responde en el puerto de depuración")
+            log.error("Chrome no responde en el puerto de depuracion")
+            return None
+        print("⏳ Esperando a que Chrome responda...")
+        time.sleep(2)
+
     try:
         chrome_options = Options()
-        chrome_options.add_experimental_option("debuggerAddress", "127.0.0.1:9222")
-        intentos = 0
-        max_intentos = 10
-        while intentos < max_intentos:
-            try:
-                driver = webdriver.Chrome(options=chrome_options)
-                # Ningun execute_script puede bloquear el bucle indefinidamente:
-                # si tarda mas de la cuenta, Selenium lanza TimeoutException.
-                driver.set_script_timeout(TIEMPO_MAXIMO_SCRIPT)
-                driver.set_page_load_timeout(TIEMPO_MAXIMO_CARGA)
-                print("✓ Conectado a Chrome")
-                log.info("Conectado a Chrome")
-                return driver
-            except Exception as e:
-                intentos += 1
-                if intentos < max_intentos:
-                    print(f"⏳ Esperando a que Chrome se inicie... (intento {intentos}/{max_intentos})")
-                    time.sleep(2)
-                else:
-                    raise e
+        chrome_options.add_experimental_option("debuggerAddress", f"127.0.0.1:{PUERTO_DEPURACION}")
+        driver = webdriver.Chrome(options=chrome_options)
+        # Ningun execute_script puede bloquear el bucle indefinidamente:
+        # si tarda mas de la cuenta, Selenium lanza TimeoutException.
+        driver.set_script_timeout(TIEMPO_MAXIMO_SCRIPT)
+        driver.set_page_load_timeout(TIEMPO_MAXIMO_CARGA)
+        print("✓ Conectado a Chrome")
+        log.info("Conectado a Chrome")
+        return driver
     except Exception as e:
         print(f"✗ Error al conectar a Chrome: {e}")
         log.error(f"No se pudo conectar a Chrome: {e}")
-        print("\nAsegúrate de haber ejecutado: iniciar_chrome_debug.bat")
         return None
+
+
+def sesion_viva(driver):
+    """
+    Indica si la sesion con Chrome sigue utilizable.
+
+    Hace falta preguntarlo activamente: los detectores capturan cualquier error
+    y devuelven listas vacias, asi que cuando Chrome muere el bucle no ve ninguna
+    excepcion, solo URLs "sin nada" ronda tras ronda. Asi se acumularon 302
+    errores de "invalid session id" el 10/09 sin que el monitor se recuperara.
+
+    Es una consulta local a Chrome, no una visita a ninguna pagina. Se captura
+    cualquier excepcion a proposito: si el que murio es chromedriver, el error
+    no es de Selenium sino de la conexion HTTP local.
+    """
+    # Si Chrome no responde en su puerto, la sesion esta muerta: no se pregunta a
+    # chromedriver, que tardaria hasta un minuto en darse cuenta.
+    if not puerto_depuracion_activo():
+        return False
+    try:
+        driver.current_window_handle
+        return True
+    except Exception:
+        return False
+
+
+def soltar_sesion(driver):
+    """Cierra el chromedriver de una sesion muerta sin cerrar Chrome."""
+    try:
+        driver.service.stop()
+    except Exception:
+        pass
+
+
+def buscar_chrome():
+    """Devuelve la ruta de chrome.exe, o None si no esta en ninguna ruta conocida."""
+    for ruta in RUTAS_CHROME:
+        if ruta and os.path.isfile(ruta):
+            return ruta
+    return None
+
+
+def lanzar_chrome():
+    """
+    Abre Chrome en modo depuracion, igual que iniciar_chrome_debug.bat.
+
+    Devuelve True si se pudo lanzar; eso no garantiza que ya responda, de eso
+    se encarga conectar_chrome().
+
+    Se lanza con "start", igual que el .bat: el comando vuelve al instante y
+    Chrome queda como proceso independiente, asi que sigue abierto aunque se
+    detenga el monitor con Ctrl+C.
+    """
+    ruta = buscar_chrome()
+    if not ruta:
+        print("   ✗ No se encontró chrome.exe para relanzarlo")
+        log.error("No se encontro chrome.exe para relanzarlo")
+        return False
+    try:
+        subprocess.run(
+            ["cmd", "/c", "start", "", ruta,
+             f"--remote-debugging-port={PUERTO_DEPURACION}", f"--user-data-dir={PERFIL_CHROME}"],
+            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=15, check=True,
+        )
+    except (OSError, subprocess.SubprocessError) as e:
+        print(f"   ✗ No se pudo relanzar Chrome: {e}")
+        log.error(f"No se pudo relanzar Chrome: {e}")
+        return False
+    print("   🔄 Chrome relanzado")
+    log.warning(f"Chrome relanzado automaticamente: {ruta}")
+    return True
+
+
+def recuperar_sesion(driver):
+    """
+    Recupera la sesion con Chrome y devuelve una nueva, relanzando Chrome si
+    hace falta.
+
+    Avisos por Telegram:
+    - Si reconecta al primer intento (solo se perdio la sesion, Chrome seguia
+      abierto), no se avisa: queda en el registro.
+    - Si Chrome estaba caido y el relanzamiento lo recupera, un solo mensaje
+      diciendo que se relanzo.
+    - Si no se recupera, aviso de que el monitor esta CIEGO; se sigue intentando
+      (reconexion cada ESPERA_RECONEXION, relanzamiento cada
+      INTERVALO_RELANZAMIENTO) y se avisa de nuevo al recuperarse.
+
+    No reintenta ninguna URL, asi que no anade ninguna visita a las boleteras.
+    """
+    print("\n✗ Se perdió la sesión con Chrome. Reconectando...")
+    log.error("Sesion con Chrome perdida, reconectando")
+    soltar_sesion(driver)
+
+    # Chrome sigue vivo (solo se perdio la sesion): basta con reconectar.
+    if puerto_depuracion_activo():
+        nuevo = conectar_chrome()
+        if nuevo:
+            log.info("Sesion con Chrome recuperada al primer intento")
+            return nuevo
+
+    inicio = time.time()
+    ultimo_relanzamiento = None
+    aviso_caida_enviado = False
+    while True:
+        relanzado = False
+        if ultimo_relanzamiento is None or time.time() - ultimo_relanzamiento >= INTERVALO_RELANZAMIENTO:
+            ultimo_relanzamiento = time.time()
+            relanzado = lanzar_chrome()
+            if relanzado:
+                nuevo = conectar_chrome()
+                if nuevo:
+                    avisar_recuperacion(inicio, aviso_caida_enviado, relanzado=True)
+                    return nuevo
+
+        if not aviso_caida_enviado:
+            aviso_caida_enviado = enviar_notificacion(
+                "⚠️ El monitor perdió la conexión con Chrome y está CIEGO: "
+                "no puede ver disponibilidad hasta que Chrome vuelva."
+                + chr(10) + chr(10)
+                + "Intenté relanzarlo y no respondió. Sigo reintentando: reconexión "
+                + f"cada {ESPERA_RECONEXION} s y relanzamiento cada "
+                + f"{INTERVALO_RELANZAMIENTO // 60} min. Si hay un Chrome abierto con el "
+                + "perfil del monitor sin modo debug, ciérralo."
+                + chr(10) + chr(10)
+                + f"⏰ {time.strftime('%H:%M:%S')}"
+            )
+        print(f"   Chrome no responde. Nuevo intento en {ESPERA_RECONEXION} s...")
+        time.sleep(ESPERA_RECONEXION)
+
+        # Solo se intenta si Chrome ya contesta (p. ej. lo abrio el usuario).
+        if puerto_depuracion_activo():
+            nuevo = conectar_chrome()
+            if nuevo:
+                avisar_recuperacion(inicio, aviso_caida_enviado, relanzado=False)
+                return nuevo
+
+
+def avisar_recuperacion(inicio, aviso_caida_enviado, relanzado):
+    """Registra y avisa por Telegram de que el monitor vuelve a tener Chrome."""
+    segundos = int(time.time() - inicio)
+    duracion = f"{segundos} s" if segundos < 120 else f"{segundos // 60} min"
+    log.info(f"Sesion con Chrome recuperada tras {duracion} sin conexion (relanzado={relanzado})")
+    if aviso_caida_enviado:
+        texto = f"✅ Conexión con Chrome recuperada tras {duracion}. El monitor vuelve a vigilar."
+    else:
+        texto = (
+            "🔄 Chrome se cerró o dejó de responder y lo relancé automáticamente. "
+            f"El monitor vuelve a vigilar ({duracion} sin conexión)."
+        )
+    enviar_notificacion(
+        texto
+        + chr(10) + chr(10)
+        + "Si alguna página te pide volver a iniciar sesión, hazlo en esa ventana."
+        + chr(10) + chr(10)
+        + f"⏰ {time.strftime('%H:%M:%S')}"
+    )
 
 
 def es_url_pasala(url):
@@ -1362,6 +1535,31 @@ TIEMPO_MAXIMO_SCRIPT = 20  # Segundos maximos para un execute_script
 # carga normal tarda entre 4 y 6 segundos, asi que 30 deja margen de sobra.
 TIEMPO_MAXIMO_CARGA = 30  # Segundos
 
+# Espera entre intentos de reconexion cuando Chrome no responde. Los intentos
+# son locales (127.0.0.1:9222): no visitan ninguna boletera.
+ESPERA_RECONEXION = 30  # Segundos
+
+# Tiempo maximo esperando a que Chrome abra su puerto de depuracion tras
+# arrancar. Normalmente tarda 2-5 segundos.
+ESPERA_ARRANQUE_CHROME = 20  # Segundos
+
+# Chrome del monitor, con los mismos parametros que iniciar_chrome_debug.bat.
+# El perfil se arma con os.path.join para no depender de barras invertidas.
+PUERTO_DEPURACION = 9222
+PERFIL_CHROME = os.path.join("C:" + os.sep, "selenium", "ChromeProfile")
+RUTAS_CHROME = [
+    os.path.join(os.environ.get("ProgramFiles", ""), "Google", "Chrome", "Application", "chrome.exe"),
+    os.path.join(os.environ.get("ProgramFiles(x86)", ""), "Google", "Chrome", "Application", "chrome.exe"),
+    os.path.join(os.environ.get("LOCALAPPDATA", ""), "Google", "Chrome", "Application", "chrome.exe"),
+]
+
+# Como maximo un relanzamiento de Chrome cada 5 minutos durante una caida.
+# Chrome admite una sola instancia por perfil: si hay una abierta con el perfil
+# del monitor pero SIN el puerto de depuracion, cada relanzamiento solo abre otra
+# ventana en ella y el puerto nunca se activa. Sin este limite, el bot abriria
+# una ventana nueva cada ESPERA_RECONEXION segundos.
+INTERVALO_RELANZAMIENTO = 300  # Segundos
+
 # Por encima de este numero de secciones se asume que son asientos numerados
 # y no localidades, asi que no se detallan en pantalla.
 LIMITE_DETALLE_SECCIONES = 20
@@ -1518,6 +1716,12 @@ def monitorear_urls(driver):
             # Revisar cada URL
             for idx, url in enumerate(URLS_A_MONITOREAR, 1):
                 print(f"\n[URL {idx}/{len(URLS_A_MONITOREAR)}]")
+
+                # Antes de visitar, se comprueba que Chrome sigue ahi. Si no, se
+                # recupera la sesion y se continua con esta misma URL, que aun no
+                # se habia visitado: no es un reintento.
+                if not sesion_viva(driver):
+                    driver = recuperar_sesion(driver)
                 # Cada URL va aislada: si una falla, se registra y se sigue con la
                 # siguiente. Antes un solo try envolvia la ronda entera, y un error
                 # en la URL 5 saltaba todas las posteriores y reiniciaba desde la 1;
@@ -1849,6 +2053,9 @@ if __name__ == "__main__":
     print("=" * 70)
     print(f"Registro en: {ARCHIVO_LOG}")
 
+    if not puerto_depuracion_activo():
+        # Chrome no estaba abierto: se abre como lo haria iniciar_chrome_debug.bat
+        lanzar_chrome()
     driver = conectar_chrome()
     if driver:
         try:
