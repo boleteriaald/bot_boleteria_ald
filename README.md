@@ -158,6 +158,18 @@ Con `MONITOR_PRUEBAS_RELANZAR=1` se activa además la que **cierra** el Chrome d
 monitor para comprobar que se relanza solo. Solo toca el Chrome del perfil del
 monitor, nunca tu navegador normal.
 
+Que los avisos **lleguen de verdad** a tu Telegram no lo comprueban las pruebas de
+`tests/`, que usan un doble. Para eso está `probar_telegram.py`, que envía mensajes
+reales con tu bot:
+
+```bash
+python probar_telegram.py
+```
+
+Sin argumentos envía un aviso de disponibilidad de ejemplo; con `todos`, también los
+de Chrome relanzado y de bloqueo. Van marcados como prueba. No abre Chrome ni visita
+boleteras.
+
 ## Cómo funciona por dentro
 
 ```
