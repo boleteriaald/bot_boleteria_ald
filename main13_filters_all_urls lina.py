@@ -867,34 +867,68 @@ def verificar_disponibilidad_taquillalive_details(driver, url):
     """
     Verifica disponibilidad en la página de detalles de TaquillalLive
     Busca el botón "Compra Tus Tiquetes"
+
+    Esta página solo publica el catálogo de localidades (nombre y precio) y un
+    botón de compra genérico: nunca dice cuáles localidades están realmente
+    disponibles en este instante, eso solo lo tiene book-performance
+    (verificar_disponibilidad_taquillalive_book). Por eso, cuando el botón
+    aparece, se reporta como un aviso SIN DETALLE en vez de usar el nombre del
+    evento como si fuera una localidad: eso es justo el error que ya se
+    corrigió en Ticketmaster (ver comentario en
+    verificar_disponibilidad_ticketmaster) -- un filtro por localidad nunca
+    casa contra el nombre del evento y el aviso se perdía en silencio.
+
+    performance-details tambien puede pasar por la sala de espera de
+    queue-it.net en eventos de mucha demanda (verificado en vivo con Stream
+    Fighters/Westcol): la redireccion de vuelta a TaquillaLive no siempre
+    termina dentro de los 3 s de espera de aqui, y sin esta deteccion el
+    boton se busca todavia en la pagina de queue-it, nunca aparece y se
+    reporta AGOTADO aunque la venta este abierta.
     """
     try:
         print(f"\n→ Navegando a TaquillalLive (Details): {url}")
         navegar(driver, url)
         time.sleep(3)
 
-        # Obtener nombre del evento
+        # Obtener nombre del evento (best-effort: en la pagina de queue-it no
+        # va a encontrar nada con estos selectores, y no pasa nada)
         nombre_evento = None
         try:
             nombre_evento = driver.find_element(By.XPATH,
                                                 "//h1 | //h2 | //div[@class='event-title'] | //span[@class='artist-name']"
                                                 ).text.strip()
         except WebDriverException:
+            pass
+        if not nombre_evento:
             nombre_evento = "Evento TaquillalLive"
 
         print(f"   Evento: {nombre_evento}")
 
+        try:
+            texto_pagina = driver.find_element(By.TAG_NAME, "body").text
+        except WebDriverException:
+            texto_pagina = ""
+
+        en_cola, senal_cola = detectar_sala_espera(texto_pagina)
+        en_queue_it = "queue-it.net" in (driver.current_url or "").lower()
+
+        if en_cola or en_queue_it:
+            motivo = senal_cola or "redireccion a queue-it.net"
+            print(f"   ⏳ ALTA DEMANDA / COLA VIRTUAL detectada ({motivo}) - puede haber venta abierta")
+            log.warning(f"ALTA DEMANDA / COLA VIRTUAL en TaquillaLive (details) ({motivo}) | {url}")
+            return [f"{nombre_evento} - ALTA DEMANDA, revisa ya {MARCADOR_SIN_DETALLE}"], [], url
+
         # ✅ Buscar el botón "Compra Tus Tiquetes"
         try:
-            boton_compra = driver.find_element(By.XPATH,
-                                               "//button[contains(text(), 'Compra Tus Tiquetes')] | "
-                                               "//a[contains(text(), 'Compra Tus Tiquetes')] | "
-                                               "//button[contains(text(), 'COMPRA')] | "
-                                               "//a[contains(@class, 'buy-button')]"
-                                               )
+            driver.find_element(By.XPATH,
+                                "//button[contains(text(), 'Compra Tus Tiquetes')] | "
+                                "//a[contains(text(), 'Compra Tus Tiquetes')] | "
+                                "//button[contains(text(), 'COMPRA')] | "
+                                "//a[contains(@class, 'buy-button')]"
+                                )
 
-            print(f"   ✅ Botón 'Compra Tus Tiquetes' encontrado - DISPONIBLE")
-            return [nombre_evento], [], url
+            print(f"   ✅ Botón 'Compra Tus Tiquetes' encontrado - venta abierta (sin detalle por localidad)")
+            return [f"{nombre_evento} - venta abierta {MARCADOR_SIN_DETALLE}"], [], url
 
         except WebDriverException:
             print(f"   ❌ Botón 'Compra Tus Tiquetes' NO encontrado - AGOTADO")
@@ -910,6 +944,31 @@ def verificar_disponibilidad_taquillalive_book(driver, url):
     """
     Verifica disponibilidad en la página de compra de TaquillalLive
     Detecta sectores disponibles en el panel derecho
+
+    Dos comportamientos verificados contra páginas reales (evento Feid,
+    sep-2026) que el detector debe distinguir de un agotado real:
+
+    1. Cola virtual / alta demanda: un evento con mucha demanda (p. ej.
+       Stream Fighters) redirige book-performance entero a una sala de espera
+       de terceros en queue-it.net, con markup nada que ver con TaquillaLive.
+       Cuando la demanda es alta pero sigue en TaquillaLive, la propia página
+       oculta los tres sectores y muestra el aviso "Sin disponibilidad por
+       alta demanda del evento, en el momento todos los tickets están en
+       proceso de compra por otros usuarios" -- eso NO es que se agotó, es
+       que el cupo está retenido en el carrito de otro comprador en ese
+       instante exacto, y minutos (a veces segundos) después vuelve a
+       liberarse. Ambos casos se tratan igual que la sala de espera de
+       Ticketmaster: se avisa SIN DETALLE en vez de reportar 0 disponibles.
+    2. Cada sector vive SIEMPRE en el DOM dentro de
+       ".ticket-list-box[data-section_id]" con el nombre en ".sector_name":
+       ese catálogo no cambia. Lo que sí cambia en vivo es la VISIBILIDAD
+       (style="display:none") de cada caja según si su cupo está libre o
+       retenido -- es la misma distinción catálogo-vs-disponibilidad-real
+       que ya se documentó para Ticketmaster (sector.available siempre true,
+       lo real está en sector.sections[].available). Por eso aquí se usa
+       is_displayed(), no sector.text: Selenium devuelve texto vacío para un
+       elemento oculto, y decidir por texto vacío hacía que una caja
+       retenida se descartara en silencio en vez de contarse como agotada.
     """
     try:
         print(f"\n→ Navegando a TaquillalLive (Book): {url}")
@@ -929,133 +988,121 @@ def verificar_disponibilidad_taquillalive_book(driver, url):
             except WebDriverException:
                 nombre_evento = "Evento TaquillalLive"
 
-        if nombre_evento:
-            print(f"   Evento: {nombre_evento}")
+        if not nombre_evento:
+            nombre_evento = "Evento TaquillalLive"
+
+        print(f"   Evento: {nombre_evento}")
+
+        # Cola virtual / alta demanda: hay que avisar igual, no dar el evento
+        # por agotado. detectar_sala_espera ya reconoce "alta demanda", que es
+        # justo la frase que usa TaquillaLive cuando retiene todos los cupos.
+        try:
+            texto_pagina = driver.find_element(By.TAG_NAME, "body").text
+        except WebDriverException:
+            texto_pagina = ""
+
+        en_cola, senal_cola = detectar_sala_espera(texto_pagina)
+        en_queue_it = "queue-it.net" in (driver.current_url or "").lower()
+
+        if en_cola or en_queue_it:
+            motivo = senal_cola or "redireccion a queue-it.net"
+            print(f"   ⏳ ALTA DEMANDA / COLA VIRTUAL detectada ({motivo}) - puede haber cupo")
+            log.warning(f"ALTA DEMANDA / COLA VIRTUAL en TaquillaLive (book) ({motivo}) | {url}")
+            return [f"{nombre_evento} - ALTA DEMANDA, revisa ya {MARCADOR_SIN_DETALLE}"], [], url
 
         localidades_disponibles = []
         localidades_agotadas = []
 
-        # ✅ MEJORADO: Buscar los BOTONES/DROPDOWNS de sectores en el panel derecho
-        # La estructura parece ser div con clase "ticket-item" o similar
-        try:
-            # Buscar todos los elementos que contienen información de sectores
-            sectores = driver.find_elements(By.XPATH,
-                                            "//div[contains(@class, 'ticket')] | "
-                                            "//div[contains(@class, 'sector')] | "
-                                            "//div[contains(@class, 'section')] | "
-                                            "//div[@class='row'] | "
-                                            "//li[contains(@class, 'ticket')] | "
-                                            "//button[contains(@class, 'sector')]"
-                                            )
+        # Selector especifico, verificado contra la pagina real: cada sector
+        # es un .ticket-list-box con el nombre en .sector_name. Se prueba
+        # primero porque el barrido generico de abajo hace que selectores tan
+        # anchos como div[contains(@class,'ticket')] cuenten tambien los
+        # contenedores envolventes del mismo sector (ticket-list-boxes,
+        # ticket-list-trigger, ticket-list-content) como si fueran sectores
+        # aparte -- la causa mas probable de los 22 "sectores" que se leyeron
+        # alguna vez para Gorillaz.
+        cajas = driver.find_elements(By.XPATH, "//div[contains(@class, 'ticket-list-box')]")
 
-            print(f"   ✓ Se encontraron {len(sectores)} elementos de sectores")
+        if not cajas:
+            # Reserva: estructura distinta a la ya verificada (otro evento
+            # puede usar otro theme). Se mantiene el barrido generico anterior
+            # en vez de dar el evento por agotado sin más.
+            cajas = driver.find_elements(By.XPATH,
+                                         "//div[contains(@class, 'sector')] | "
+                                         "//div[contains(@class, 'section')] | "
+                                         "//li[contains(@class, 'ticket')] | "
+                                         "//button[contains(@class, 'sector')]"
+                                         )
+            print(f"   ℹ️ Sin .ticket-list-box, se usa el barrido generico: {len(cajas)} elementos")
+        else:
+            print(f"   ✓ Se encontraron {len(cajas)} sectores (.ticket-list-box)")
 
-            # Si no hay sectores, buscar por otro patrón
-            if len(sectores) == 0:
-                sectores = driver.find_elements(By.XPATH,
-                                                "//*[contains(text(), 'Sector') or contains(text(), 'Vista') or contains(text(), 'Paquete')]/.."
-                                                )
-                print(f"   ℹ️ Reintentado: Se encontraron {len(sectores)} elementos")
-
-            if len(sectores) == 0:
-                print("   ❌ No se encontraron sectores disponibles")
-                return [], [nombre_evento], url
-
-            # Procesar cada sector
-            for idx, sector in enumerate(sectores):
-                try:
-                    # Obtener texto completo del sector
-                    texto_sector = sector.text.strip()
-
-                    if not texto_sector or len(texto_sector) < 3:
-                        continue
-
-                    # Extraer nombre del sector (primera línea o línea más larga)
-                    lineas = [l.strip() for l in texto_sector.split('\n') if l.strip()]
-
-                    if not lineas:
-                        continue
-
-                    # El nombre es generalmente la primera línea significativa
-                    nombre_sector = lineas[0]
-
-                    # ✅ IMPORTANTE: Filtrar lineas que son solo precios o números
-                    if nombre_sector.startswith('$') or nombre_sector.startswith('Desde') or nombre_sector.isdigit():
-                        # Buscar la línea anterior que sea el nombre real
-                        if len(lineas) > 1:
-                            nombre_sector = lineas[0] if not lineas[0].startswith('$') else (
-                                lineas[1] if len(lineas) > 1 else nombre_sector)
-
-                    # Evitar palabras genéricas
-                    if nombre_sector in ['Filtrar', 'Siguente', 'Siguiente', '+', '-', '']:
-                        continue
-
-                    # Si ya hemos visto este sector, saltar
-                    if nombre_sector in localidades_disponibles or nombre_sector in localidades_agotadas:
-                        continue
-
-                    # ✅ Verificar si el sector está disponible
-                    es_disponible = True
-
-                    # Verificar clases del elemento
-                    clases = sector.get_attribute("class") or ""
-                    if "disabled" in clases or "sold-out" in clases or "agotado" in clases.lower():
-                        es_disponible = False
-
-                    # Verificar si está deshabilitado
-                    if sector.get_attribute("disabled"):
-                        es_disponible = False
-
-                    # Buscar indicadores de agotado en el texto
-                    if "Agotado" in texto_sector or "Sold Out" in texto_sector or "AGOTADO" in texto_sector:
-                        es_disponible = False
-
-                    # Verificar si hay un dropdown o botón accesible (indicador de disponibilidad)
-                    try:
-                        dropdown = sector.find_element(By.XPATH,
-                                                       ".//select | .//button | .//a[contains(@class, 'btn')]"
-                                                       )
-                        # Si hay un elemento interactivo, probablemente esté disponible
-                    except WebDriverException:
-                        # Si no hay elemento interactivo y no es "Filtrar", podría estar agotado
-                        if "Filtrar" not in nombre_sector:
-                            pass
-
-                    # Registrar el sector
-                    if es_disponible and nombre_sector not in ['Filtrar', 'Siguente', 'Siguiente']:
-                        localidades_disponibles.append(nombre_sector)
-                        print(f"   ✅ {nombre_sector}")
-                    elif nombre_sector not in ['Filtrar', 'Siguente', 'Siguiente']:
-                        localidades_agotadas.append(nombre_sector)
-                        print(f"   ❌ {nombre_sector}")
-
-                except WebDriverException:
-                    continue
-                except Exception:
-                    log.exception(f"Error inesperado procesando un sector de TaquillaLive: {url}")
-                    continue
-
-            print(f"\n📊 RESUMEN:")
-            print(f"   ✓ Disponibles: {len(localidades_disponibles)}")
-            print(f"   ✗ Agotadas: {len(localidades_agotadas)}")
-
-            if localidades_disponibles:
-                print(f"\n✅ Sectores DISPONIBLES en TaquillalLive:")
-                for idx, loc in enumerate(localidades_disponibles, 1):
-                    print(f"   {idx}. {loc}")
-
-            return localidades_disponibles, localidades_agotadas, url
-
-        except Exception as e:
-            print(f"   ⚠️ Error buscando sectores: {e}")
-            log.exception(f"Error buscando sectores en TaquillaLive (book): {url}")
+        if not cajas:
+            print("   ❌ No se encontraron sectores en la página")
             return [], [nombre_evento], url
+
+        for caja in cajas:
+            try:
+                # El nombre viene del catálogo (.sector_name si existe), asi
+                # que se lee con textContent: a diferencia de .text, no
+                # depende de que la caja esté visible en este instante.
+                try:
+                    nombre_sector = (caja.find_element(By.CLASS_NAME, "sector_name")
+                                     .get_attribute("textContent") or "").strip()
+                except WebDriverException:
+                    texto_caja = (caja.get_attribute("textContent") or "").strip()
+                    lineas = [l.strip() for l in texto_caja.split('\n') if l.strip()]
+                    nombre_sector = lineas[0] if lineas else ""
+
+                if not nombre_sector or len(nombre_sector) < 3:
+                    continue
+                if nombre_sector in ['Filtrar', 'Siguente', 'Siguiente', '+', '-']:
+                    continue
+                if nombre_sector in localidades_disponibles or nombre_sector in localidades_agotadas:
+                    continue
+
+                clases = (caja.get_attribute("class") or "").lower()
+                texto_caja = caja.get_attribute("textContent") or ""
+
+                es_disponible = True
+                if "disabled" in clases or "sold-out" in clases or "agotado" in clases:
+                    es_disponible = False
+                if caja.get_attribute("disabled"):
+                    es_disponible = False
+                if "Agotado" in texto_caja or "Sold Out" in texto_caja or "AGOTADO" in texto_caja:
+                    es_disponible = False
+                # El cupo retenido por el carrito de otro comprador se ve como
+                # la caja oculta (display:none), no como una clase "agotado".
+                if not caja.is_displayed():
+                    es_disponible = False
+
+                if es_disponible:
+                    localidades_disponibles.append(nombre_sector)
+                    print(f"   ✅ {nombre_sector}")
+                else:
+                    localidades_agotadas.append(nombre_sector)
+                    print(f"   ❌ {nombre_sector}")
+
+            except WebDriverException:
+                continue
+            except Exception:
+                log.exception(f"Error inesperado procesando un sector de TaquillaLive: {url}")
+                continue
+
+        print(f"\n📊 RESUMEN:")
+        print(f"   ✓ Disponibles: {len(localidades_disponibles)}")
+        print(f"   ✗ Agotadas: {len(localidades_agotadas)}")
+
+        if localidades_disponibles:
+            print(f"\n✅ Sectores DISPONIBLES en TaquillalLive:")
+            for idx, loc in enumerate(localidades_disponibles, 1):
+                print(f"   {idx}. {loc}")
+
+        return localidades_disponibles, localidades_agotadas, url
 
     except Exception as e:
         print(f"✗ Error al verificar disponibilidad en TaquillalLive (Book): {e}")
         log.exception(f"Error en TaquillaLive (book): {url}")
-        import traceback
-        traceback.print_exc()
         return [], [], url
 
 
@@ -1805,6 +1852,14 @@ def monitorear_urls(driver):
 
                         # Obtener nombre del evento y fecha
                         nombre_evento = obtener_nombre_evento(driver)
+                        if nombre_evento == "Evento":
+                            # El DOM no dio nada usable (pasa en TaquillaLive
+                            # book-performance, que se repinta solo). Se
+                            # intenta con el artista de la URL antes de
+                            # resignarse al literal "Evento" sin contexto.
+                            nombre_desde_url = nombre_evento_desde_artist_url(url_final)
+                            if nombre_desde_url:
+                                nombre_evento = nombre_desde_url
                         fecha_evento = obtener_fecha_evento(driver)
 
                         print(f"   Evento: {nombre_evento}")
@@ -1893,41 +1948,74 @@ def monitorear_urls(driver):
 
 
 def obtener_nombre_evento(driver):
-    """Extrae el nombre del evento de la página"""
-    try:
-        # Intentar múltiples selectores
-        nombre = None
+    """
+    Extrae el nombre del evento de la página, para el mensaje de Telegram.
 
-        selectores = [
-            "//h1",
-            "//h2[@class='event-title']",
-            "//div[@class='title']",
-            "//span[@class='event-name']",
-            "//div[contains(@class, 'event-header')]//h1",
-            "//div[contains(@class, 'event-info')]//h1"
-        ]
+    Se llama justo despues de que verificar_disponibilidad_* ya leyo sectores
+    o localidades en la misma pagina, no tras una visita nueva. Aun asi, en
+    paginas que se re-renderizan solas (TaquillaLive book-performance sondea
+    su propio estado cada pocos segundos) el DOM puede estar a mitad de un
+    repintado justo en ese instante y ningun selector encuentra nada. No es
+    una peticion nueva al sitio -- es releer la pagina que ya esta cargada --
+    asi que un par de reintentos cortos no van contra la regla de no
+    aumentar el ritmo de peticiones (esa regla es sobre visitas, no sobre
+    consultas al DOM de una pagina ya abierta).
+    """
+    selectores = [
+        "//h1",
+        "//h2[@class='event-title']",
+        "//div[@class='title']",
+        "//span[@class='event-name']",
+        "//div[contains(@class, 'event-header')]//h1",
+        "//div[contains(@class, 'event-info')]//h1"
+    ]
 
-        for selector in selectores:
-            try:
-                nombre = driver.find_element(By.XPATH, selector).text.strip()
-                if nombre and len(nombre) > 3:
-                    return nombre
-            except WebDriverException:
-                continue
+    for intento in range(3):
+        try:
+            for selector in selectores:
+                try:
+                    nombre = driver.find_element(By.XPATH, selector).text.strip()
+                    if nombre and len(nombre) > 3:
+                        return nombre
+                except WebDriverException:
+                    continue
 
-        # Si no encuentra por XPath, intentar del título de la página
-        if not nombre:
+            # Si no encuentra por XPath, intentar del título de la página
             titulo = driver.title.split('|')[0].strip() if '|' in driver.title else driver.title
             if titulo and len(titulo) > 3:
                 return titulo
 
-        return "Evento"
+        except WebDriverException:
+            pass
+        except Exception:
+            log.exception("Error inesperado obteniendo el nombre del evento")
+            return "Evento"
 
-    except WebDriverException:
-        return "Evento"
-    except Exception:
-        log.exception("Error inesperado obteniendo el nombre del evento")
-        return "Evento"
+        if intento < 2:
+            time.sleep(0.5)
+
+    return "Evento"
+
+
+def nombre_evento_desde_artist_url(url):
+    """
+    Ultimo recurso para el nombre del evento, sin tocar el DOM.
+
+    TaquillaLive pone el artista en la propia URL (?artist=feid&event=...).
+    A diferencia de obtener_nombre_evento(), esto no puede fallar por un
+    repintado a mitad de consulta: es leer un dato que ya se tiene. Sirve de
+    respaldo para cuando el DOM no da el nombre, en vez del literal "Evento"
+    sin ningun contexto.
+    """
+    from urllib.parse import urlparse, parse_qs
+
+    try:
+        artista = parse_qs(urlparse(url).query).get("artist", [None])[0]
+    except ValueError:
+        return None
+    if not artista:
+        return None
+    return artista.replace('-', ' ').replace('_', ' ').strip().title() or None
 
 
 def obtener_fecha_evento(driver):

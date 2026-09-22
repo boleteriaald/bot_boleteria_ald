@@ -128,6 +128,46 @@ Descubierto contra páginas reales; conviene no volver a aprenderlo a golpes.
 - `probar_ticketmaster.py` y el monitor comparten la misma pestaña de Chrome: no
   ejecutar la prueba con el monitor corriendo, se pisan.
 
+## TaquillaLive: lo que ya se sabe
+
+Descubierto contra páginas reales (evento Feid, sep-2026); conviene no volver a
+aprenderlo a golpes.
+
+- `performance-details` **nunca** tiene disponibilidad real por localidad: es un
+  catálogo estático (nombre/aforo/precio) más un botón genérico "Compra Tus
+  Tiquetes" que solo dice si la venta del evento está abierta en general. Se trata
+  como aviso `[SIN DETALLE]`, igual que la venta abierta de Ticketmaster — no se usa
+  el nombre del evento como si fuera una localidad (ese error ya se cometió y se
+  corrigió una vez en Ticketmaster, ver `verificar_disponibilidad_ticketmaster`).
+- El detalle real por localidad solo está en `book-performance`, y ahí cada sector
+  vive **siempre** en el DOM dentro de `.ticket-list-box[data-section_id]` con el
+  nombre en `.sector_name` — ese catálogo no cambia. Lo que sí cambia en vivo es la
+  **visibilidad** (`style="display:none"`) de cada caja: TaquillaLive retiene el
+  cupo en el carrito de otro comprador durante la compra y lo libera segundos o
+  minutos después. Es la misma distinción catálogo-vs-disponibilidad-real que en
+  Ticketmaster (`sector.available` siempre `true`, lo real en
+  `sector.sections[].available`). Por eso se decide con `is_displayed()`, nunca con
+  `sector.text`: Selenium devuelve texto vacío para un elemento oculto, así que
+  decidir por texto vacío hacía que una caja retenida se descartara en silencio en
+  vez de contarse como agotada.
+- Cuando **todos** los sectores están retenidos a la vez, la página muestra el aviso
+  "Sin disponibilidad por alta demanda del evento, en el momento todos los tickets
+  están en proceso de compra por otros usuarios" y oculta las tres cajas. No es un
+  agotado real. `detectar_sala_espera()` ya reconoce la frase "alta demanda", así
+  que se reutiliza tal cual para avisar `[SIN DETALLE]` en vez de reportar 0
+  disponibles.
+- Un evento de mucha demanda (p. ej. Stream Fighters/Westcol) puede redirigir
+  `book-performance` entero a una sala de espera de terceros en `queue-it.net`, con
+  markup que no tiene nada que ver con TaquillaLive. Se detecta por dominio
+  (`queue-it.net` en `driver.current_url`) además del texto de la página.
+- El barrido genérico `div[contains(@class,'ticket')]` conjeturado antes de verificar
+  contra la página real también capturaba los contenedores envolventes de cada
+  sector (`ticket-list-boxes`, `ticket-list-trigger`, `ticket-list-content`) como si
+  fueran sectores aparte — la causa más probable de los 22 "sectores" que se leyeron
+  alguna vez para Gorillaz (ver Pendientes). El selector `.ticket-list-box` es
+  específico y se prueba primero; el barrido genérico queda solo de reserva por si
+  otro evento usa un theme distinto.
+
 ## Pendientes acordados
 
 Hechos: README real, deduplicación, detector de Ticketmaster por sector, detección de
@@ -162,6 +202,7 @@ Por orden:
    `requirements.txt` sin versión de `python-telegram-bot` y con `requests` sin uso;
    el nombre del script lleva espacio y número de versión; restos de git de la
    reescritura del historial (rama `respaldo-antes-de-limpiar`, stash, `refs/original`).
-2. Falsos positivos por selectores genéricos (`div` con clase `row`) en Tuboleta y
-   TaquillaLive. El más delicado: tocarlo solo verificando contra páginas reales.
-   Evidencia en vivo: Gorillaz en TaquillaLive (book) lee 22 sectores disponibles.
+2. Falsos positivos por selectores genéricos (`div` con clase `row`) en Tuboleta.
+   El más delicado: tocarlo solo verificando contra páginas reales. La mitad de
+   TaquillaLive (book) ya se resolvió con el selector `.ticket-list-box` — ver
+   "TaquillaLive: lo que ya se sabe".
