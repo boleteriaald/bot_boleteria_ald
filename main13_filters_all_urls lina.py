@@ -74,8 +74,8 @@ def preparar_consola():
 URLS_A_MONITOREAR = [
 
     # STREAM FIGHTERS
-    "https://www.taquillalive.com/performance-details/?artist=westcol&event=TCL.EVN1440.PRF1",
-    "https://www.taquillalive.com/book-performance/?artist=westcol&event=TCL.EVN1440.PRF1",
+    # "https://www.taquillalive.com/performance-details/?artist=westcol&event=TCL.EVN1440.PRF1",
+    # "https://www.taquillalive.com/book-performance/?artist=westcol&event=TCL.EVN1440.PRF1",
 
     # FEID
     "https://www.taquillalive.com/performance-details/?artist=feid&event=TCL.EVN1389.PRF1",
