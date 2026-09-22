@@ -31,9 +31,22 @@ python "main13_filters_all_urls lina.py"
 
 El nombre del archivo lleva un espacio, así que siempre va entre comillas.
 
-No hay suite de tests. Para probar lógica sin navegador, cargar el módulo con
-`importlib` y sustituir `config` por un doble; nunca usar el `config.py` real ni el
-bot de Telegram real en una prueba.
+Las pruebas están en `tests/` (unittest, sin dependencias nuevas) y se ejecutan con
+`python -m unittest discover -s tests -v`. Antes vivían en carpetas temporales y se
+perdieron dos veces: **cualquier prueba nueva va a `tests/`**.
+
+- `tests/apoyo.py` carga una copia nueva del monitor por prueba, con `config` doble,
+  Telegram simulado, estado y registro en carpeta temporal y **reloj simulado**. Se
+  sustituye el `time` del script, nunca el `time` global: parchear `time.sleep`
+  global contamina a las demás pruebas del proceso.
+- `apoyo` llama a `preparar_consola()`: sin eso, los emojis de los `print` del
+  monitor tumban las pruebas en consolas cp1252.
+- Las pruebas no deben depender de `URLS_A_MONITOREAR` ni `FILTROS_LOCALIDADES`
+  reales: una ya se rompió cuando el usuario cambió un filtro. Cada prueba pone
+  los suyos.
+- `test_chrome_real.py` está desactivado salvo `MONITOR_PRUEBAS_CHROME=1`; la que
+  cierra Chrome, salvo `MONITOR_PRUEBAS_RELANZAR=1`. Exigen el monitor detenido.
+- `discover` es obligatorio: ejecutado como archivo suelto, `apoyo` no se encuentra.
 
 Verificación mínima tras editar el script:
 
@@ -123,7 +136,7 @@ tiempo en scripts y cargas de página, registro en `logs/monitor.log`, sin `exce
 desnudos, cada URL aislada en su propio `try`, emojis seguros en consolas cp1252 y
 reintento de los avisos que Telegram no pudo entregar (`deshacer_avisos()`) y
 reconexión y relanzamiento automático de Chrome (`sesion_viva()` antes de cada URL,
-`recuperar_sesion()`).
+`recuperar_sesion()`), y pruebas en `tests/`.
 
 Sobre la reconexión y el relanzamiento:
 

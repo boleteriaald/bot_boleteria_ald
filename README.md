@@ -136,6 +136,28 @@ El script imprime el progreso en consola y no se detiene solo: córtalo con `Ctr
 Si cierras la ventana de Chrome con el monitor en marcha, la volverá a abrir: para
 parar de verdad, detén primero el monitor.
 
+## Pruebas
+
+Las pruebas viven en `tests/` y usan `unittest`, que viene con Python. No leen tu
+`config.py`, no envían nada por Telegram, no visitan boleteras y no tocan tu estado
+ni tu registro: todo va a carpetas temporales.
+
+```bash
+python -m unittest discover -s tests -v
+```
+
+Hay dos pruebas contra el Chrome real, desactivadas por defecto. Necesitan el monitor
+**detenido**, porque comparten la ventana de Chrome:
+
+```bash
+set MONITOR_PRUEBAS_CHROME=1
+python -m unittest discover -s tests -p "test_chrome_real.py" -v
+```
+
+Con `MONITOR_PRUEBAS_RELANZAR=1` se activa además la que **cierra** el Chrome del
+monitor para comprobar que se relanza solo. Solo toca el Chrome del perfil del
+monitor, nunca tu navegador normal.
+
 ## Cómo funciona por dentro
 
 ```
