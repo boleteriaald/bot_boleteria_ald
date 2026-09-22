@@ -71,6 +71,14 @@ def preparar_consola():
 
 URLS_A_MONITOREAR = [
 
+    # STREAM FIGHTERS
+    "https://www.taquillalive.com/performance-details/?artist=westcol&event=TCL.EVN1440.PRF1",
+    "https://www.taquillalive.com/book-performance/?artist=westcol&event=TCL.EVN1440.PRF1",
+
+    # FEID
+    "https://www.taquillalive.com/performance-details/?artist=feid&event=TCL.EVN1389.PRF1",
+    "https://www.taquillalive.com/book-performance/?artist=feid&event=TCL.EVN1389.PRF1",
+
     # MANÁ
     "https://www.ticketmaster.co/event/mana-2026-venta-general",
 
@@ -84,13 +92,6 @@ URLS_A_MONITOREAR = [
     "https://www.ticketmaster.co/event/bts-world-tour-venta-general-viernes-2-octubre",
     "https://www.ticketmaster.co/event/bts-world-tour-venta-general-sabado-3-octubre",
 
-    # # TINI TUBOLETA
-    # "https://tbpgpal.checkout.tuboleta.com/selection/event/seat?perfId=10230464800095&table=1&productId=10230464799993",
-    "https://breakfast.checkout.tuboleta.com/selection/event/seat?perfId=10230464800095&table=1&productId=10230464799993",
-    #
-    # # TINI FANS
-    # "https://tuboletapass4.checkout.tuboleta.com/selection/event/seat?perfId=10230464800095&table=1&advantageId=10230464775047&productId=10230464799993",
-
     # KAROL G DEL 4
     "https://www.ticketmaster.co/event/karol-g-viajando-por-el-mundo-tropitour-venta-general",
     # KAROL G DEL 5
@@ -98,17 +99,8 @@ URLS_A_MONITOREAR = [
     # KAROL G DEL 6
     "https://www.ticketmaster.co/event/karol-g-viajando-por-el-mundo-tropitour-venta-general-tercera-fech#",
 
-    # ROBBIE WILLIAMS
-    # "https://tuboletapass.checkout.tuboleta.com/selection/event/date?productId=10230355790289",
-    "https://tuboletapass.checkout.tuboleta.com/selection/event/seat?perfId=10230355790391&table=1&productId=10230355790289",
-    "https://pasala.checkout.tuboleta.com/selection/resale/item?performanceId=10230355790391",
-
     # CAMILO
     # "https://breakfast.checkout.tuboleta.com/selection/event/seat?perfId=10230441698792&table=1&productId=10230441698670",
-
-    # WWE
-    # "https://tuboletapass4.checkout.tuboleta.com/selection/event/seat?perfId=10230449577695&table=1&productId=10230440869582",
-    # "https://tuboletapass4.checkout.tuboleta.com/selection/event/date?productId=10230440869582"
 
     # KRIS R FUNCIONAL
     # "https://breakfast.checkout.tuboleta.com/selection/event/date?productId=10230387611599",
@@ -124,32 +116,21 @@ URLS_A_MONITOREAR = [
     # OMAR COURTZ 13--NOV
     "https://tbpgpal.checkout.tuboleta.com/selection/event/seat?perfId=10230524219204&productId=10230523214255",
 
+    # OMAR COURTZ 12--NOV
+    # "https://pasala.checkout.tuboleta.com/selection/resale/item?performanceId=10230527903278&productId=10230523214255&lang=es",
+
+    # OMAR COURTZ 13--NOV
+    # "https://pasala.checkout.tuboleta.com/selection/resale/item?performanceId=10230524219204&productId=10230523214255&lang=es",
+
     # "https://tbpgpal.checkout.tuboleta.com/selection/event/date?productId=10230387611599", #KRIS R LOCALIDAD FALLA
     # "https://tbpgpal.checkout.tuboleta.com/selection/event/seat?perfId=10230398494504&table=1&productId=10230387611599",
 
-    # LENNY TAVAREZ Y J QUILES
-    # "https://breakfast.checkout.tuboleta.com/selection/event/date?productId=10230492501166",
-    # "https://breakfast.checkout.tuboleta.com/selection/event/seat?perfId=10230492501275&table=1&productId=10230492501166",
-
-    # LENNY PREVENTA
-    # "https://movistarpref.checkout.tuboleta.com/selection/event/seat?perfId=10230492501275&advantageId=10230492613983&productId=10230492501166",
-    # "https://movistarpref.checkout.tuboleta.com/selection/event/seat?perfId=10230492501275&table=1&advantageId=10230492613983&productId=10230492501166",
-
     # DEFF LEPARD
-    "https://tbpgpal.checkout.tuboleta.com/selection/event/seat?perfId=10230485786391&table=1&productId=10230485782854",
+    # "https://tbpgpal.checkout.tuboleta.com/selection/event/seat?perfId=10230485786391&table=1&productId=10230485782854",
 
-    # GORILLAZ    
+    # GORILLAZ
     "https://www.taquillalive.com/performance-details/?artist=gorillaz&event=TCL.EVN1152.PRF1",
     "https://www.taquillalive.com/book-performance/?artist=gorillaz&event=TCL.EVN1152.PRF1",
-
-    # ALVARO DIAZ FECHA 1 - 3 SEP
-    # "https://breakfast.checkout.tuboleta.com/selection/event/seat?perfId=10230492501277&table=1&productId=10230492501167"
-
-    # ALVARO DIAZ PÁSALA
-    # "https://pasala.checkout.tuboleta.com/selection/resale/item?performanceId=10230492501277",
-
-    # JORGE DREXLER
-    # "https://tuboletapass.checkout.tuboleta.com/selection/event/seat?perfId=10230398494507&table=1&productId=10230387611601",
 
     # RYAN CALI
     # "https://breakfast.checkout.tuboleta.com/selection/event/seat?perfId=10230493240095&table=1&productId=10230493153527",
@@ -177,19 +158,21 @@ FILTROS_LOCALIDADES = {
     # OMAR COURTZ 12--NOV
     # "https://tbpgpal.checkout.tuboleta.com/selection/event/seat?perfId=10230527903278&productId=10230523214255":
     "https://tbpgpal.checkout.tuboleta.com/selection/event/seat?perfId=10230527903278&table=1&productId=10230523214255":
-        ["TRIBUNA", "PLATEA"],
+        [  # "TRIBUNA",
+            "PLATEA"],
+
+    # OMAR COURTZ 12--NOV
+    "https://pasala.checkout.tuboleta.com/selection/resale/item?performanceId=10230527903278&productId=10230523214255&lang=es":
+        ["PLATEA"],
 
     # OMAR COURTZ 13--NOV
     "https://tbpgpal.checkout.tuboleta.com/selection/event/seat?perfId=10230524219204&productId=10230523214255":
     # "https://tbpgpal.checkout.tuboleta.com/selection/event/seat?perfId=10230524219204&table=1&productId=10230523214255":
         ["TRIBUNA", "PLATEA"],
 
-    # ROBBIE WILLIAMS
-    # "https://tuboletapass.checkout.tuboleta.com/selection/event/date?productId=10230355790289":
-    "https://tuboletapass.checkout.tuboleta.com/selection/event/seat?perfId=10230355790391&table=1&productId=10230355790289":
-        ["302", "307",
-         "202", "207",
-         "PLATEA", "TRIBUNA"],
+    # OMAR COURTZ 13--NOV
+    "https://pasala.checkout.tuboleta.com/selection/resale/item?performanceId=10230524219204&productId=10230523214255&lang=es":
+        ["PLATEA"],
 
     # KRIS R FUNCIONAL
     # "https://breakfast.checkout.tuboleta.com/selection/event/date?productId=10230387611599",
@@ -199,7 +182,7 @@ FILTROS_LOCALIDADES = {
 
     # RYAN BOGOTÁ
     "https://breakfast.checkout.tuboleta.com/selection/event/seat?perfId=10230451311545&table=1&productId=10230451310131":
-        ["VIP", "OCCIDENTAL ALTA", "ORIENTAL BAJA", "ORIENTAL ALTA", "SUR ALTA", "NORTE ALTA"],
+        ["VIP", "OCCIDENTAL ALTA", "OCCIDENTAL BAJA", "ORIENTAL BAJA", "ORIENTAL ALTA", "SUR ALTA", "NORTE ALTA"],
 
     # RYAN CALI
     # "https://breakfast.checkout.tuboleta.com/selection/event/seat?perfId=10230493240095&table=1&productId=10230493153527":
@@ -218,42 +201,18 @@ FILTROS_LOCALIDADES = {
 
     # GORILLAZ
     "https://www.taquillalive.com/performance-details/?artist=gorillaz&event=TCL.EVN1152.PRF1":
-        ["PLATEA 2"],
+        ["PLATEA 1", "PLATEA 2"],
 
     "https://www.taquillalive.com/book-performance/?artist=gorillaz&event=TCL.EVN1152.PRF1":
-        ["PLATEA 2"],
-
-    # JORGE DREXLER
-    # "https://tuboletapass.checkout.tuboleta.com/selection/event/seat?perfId=10230398494507&table=1&productId=10230387611601":
-    #     ["TRIBUNA"],
-
-    # TINI TUBOLETA
-    "https://breakfast.checkout.tuboleta.com/selection/event/seat?perfId=10230464800095&table=1&productId=10230464799993":
-        ["TRIBUNA"],
-
-    # TINI FANS
-    # "https://tuboletapass4.checkout.tuboleta.com/selection/event/seat?perfId=10230464800095&table=1&advantageId=10230464775047&productId=10230464799993":
-    #   ["TRIBUNA", "PLATEA"],
-
-    # # MAROON5
-    # "https://www.taquillalive.com/book-performance/?artist=maroon-5&event=TCL.EVN1153.PRF1":
-    #     ["PAQUETE", "PLATEA"],
-
-    # ROBBIE WILLIAMS
-    "https://pasala.checkout.tuboleta.com/selection/resale/item?performanceId=10230355790391":
-        ["307",
-         # "302",
-         # "202",
-         "207",
-         "PLATEA", "TRIBUNA"],
+        ["PLATEA 1", "PLATEA 2"],
 
     # LOS CALIGARIS
     "https://tuboletapass4.checkout.tuboleta.com/selection/event/seat?perfId=10230442113890&table=1&productId=10230442107826":
         ["TRIBUNA", "PLATEA"],
 
     # DEFF LEPARD
-    "https://tbpgpal.checkout.tuboleta.com/selection/event/seat?perfId=10230485786391&table=1&productId=10230485782854":
-        ["PISO 3"],
+    # "https://tbpgpal.checkout.tuboleta.com/selection/event/seat?perfId=10230485786391&table=1&productId=10230485782854":
+    #     ["PISO 3"],
 
     # CAMILO
     # "https://breakfast.checkout.tuboleta.com/selection/event/seat?perfId=10230441698792&table=1&productId=10230441698670":
