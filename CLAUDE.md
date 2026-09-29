@@ -127,6 +127,15 @@ Descubierto contra páginas reales; conviene no volver a aprenderlo a golpes.
   presencia no indica bloqueo.
 - `probar_ticketmaster.py` y el monitor comparten la misma pestaña de Chrome: no
   ejecutar la prueba con el monitor corriendo, se pisan.
+- Una página de evento sin venta puede decir "AGOTADO" o "EVENTO FINALIZADO" (BTS,
+  sep-2026); solo la primera la reconoce el bot como agotado. La segunda cae a la
+  detección de sala de espera, y los términos y condiciones de BTS contienen "Cuando
+  sea tu turno para comprar…": sin el límite de longitud de `detectar_sala_espera()`
+  (`LONGITUD_MAXIMA_PAGINA_ESPERA`) eso avisaba en falso "SALA DE ESPERA, la venta
+  abrió". Una sala de espera real es una página corta.
+- `bts-world-tour-2026` es el índice con 4 botones (Preventa Army Membership y Venta
+  General × 2 y 3 de octubre). El monitor solo vigila las dos Venta General; las URLs
+  de Army Membership son `bts-world-tour-army-membership-{viernes-2,sabado-3}-octubre`.
 
 ## TaquillaLive: lo que ya se sabe
 
@@ -167,6 +176,18 @@ aprenderlo a golpes.
   alguna vez para Gorillaz (ver Pendientes). El selector `.ticket-list-box` es
   específico y se prueba primero; el barrido genérico queda solo de reserva por si
   otro evento usa un theme distinto.
+- El selector específico tiene que usar `By.CLASS_NAME` (coincidencia por token
+  exacto), nunca un XPath `contains(@class, 'ticket-list-box')` (substring): el
+  contenedor que envuelve los tres sectores se llama `ticket-list-boxes`, PLURAL, y
+  ese `contains()` también lo capta. Como el contenedor va primero en el DOM, se le
+  asignaba el nombre del primer sector (siempre GREEN PRINT en Feid, por ser el
+  primer `.sector_name` en su subárbol) pero `is_displayed()` se evaluaba sobre el
+  contenedor — visible mientras exista *cualquier* sector visible, no sobre la caja
+  real de ese sector. Resultado: el primer sector salía "disponible" de forma
+  persistente (no era un parpadeo, pasaba en cada lectura) aunque su caja real
+  estuviera oculta, y para cuando el barrido llegaba a su caja real el nombre ya
+  estaba deduplicado. Reportado por el usuario tras más de un día de falsos avisos
+  de GREEN PRINT en dos máquinas distintas; reproducido y corregido sep-2026.
 
 ## Pendientes acordados
 

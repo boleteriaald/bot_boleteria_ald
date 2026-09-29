@@ -591,6 +591,10 @@ SENALES_BLOQUEO_TEXTO = [
 # pagina normal que mencione alguna de esas frases en su contenido.
 LONGITUD_MAXIMA_PAGINA_BLOQUEO = 2500
 
+# Igual criterio para la sala de espera: es una pagina corta, no un evento con
+# sus terminos y condiciones.
+LONGITUD_MAXIMA_PAGINA_ESPERA = 2500
+
 
 def detectar_bloqueo(driver):
     """
@@ -627,7 +631,17 @@ def detectar_sala_espera(texto_pagina):
 
     No es un bloqueo, es lo contrario: la venta abrio y hay tanta demanda que
     hay fila. Se avisa igualmente porque es el momento en que hay que entrar.
+
+    Una sala de espera es una pagina corta. Las paginas de evento llevan miles
+    de caracteres de terminos y condiciones, y frases como "tu turno" aparecen
+    ahi como texto fijo ("Cuando sea tu turno para comprar, se requerira tu
+    numero de Army Membership" en BTS). Sin este limite, un evento sin venta
+    abierta se leia como "la venta abrio" y avisaba en falso, igual que
+    detectar_bloqueo() evita con LONGITUD_MAXIMA_PAGINA_BLOQUEO.
     """
+    if len(texto_pagina or '') > LONGITUD_MAXIMA_PAGINA_ESPERA:
+        return False, None
+
     texto = (texto_pagina or '').lower()
     for senal in SENALES_SALA_ESPERA:
         if senal in texto:
@@ -1048,7 +1062,22 @@ def verificar_disponibilidad_taquillalive_book(driver, url):
         # ticket-list-trigger, ticket-list-content) como si fueran sectores
         # aparte -- la causa mas probable de los 22 "sectores" que se leyeron
         # alguna vez para Gorillaz.
-        cajas = driver.find_elements(By.XPATH, "//div[contains(@class, 'ticket-list-box')]")
+        #
+        # By.CLASS_NAME hace coincidencia por TOKEN exacto de clase, a
+        # diferencia de un XPath contains(@class, 'ticket-list-box'): ese
+        # contains() es un substring y "ticket-list-boxes" (el contenedor
+        # que envuelve los tres sectores, PLURAL) tambien lo contiene. Con
+        # contains() el contenedor entraba primero en la lista, se le
+        # asignaba el nombre del primer sector (GREEN PRINT) por ser el
+        # primer .sector_name en su subarbol, pero is_displayed() se
+        # evaluaba sobre el contenedor -- que esta visible mientras exista
+        # CUALQUIER sector visible. Asi, ese primer sector quedaba marcado
+        # disponible aunque su propia caja estuviera oculta, y para cuando
+        # se llegaba a su caja real el nombre ya estaba deduplicado y su
+        # estado real nunca se comprobaba. Verificado en vivo (Feid,
+        # sep-2026): GREEN PRINT salia disponible de forma persistente,
+        # sin depender de ningun parpadeo, exactamente por esto.
+        cajas = driver.find_elements(By.CLASS_NAME, "ticket-list-box")
 
         if not cajas:
             # Reserva: estructura distinta a la ya verificada (otro evento
