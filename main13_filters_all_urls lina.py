@@ -73,13 +73,23 @@ def preparar_consola():
 
 URLS_A_MONITOREAR = [
 
+    # POSADA
+    "https://tbpgpal.checkout.tuboleta.com/selection/event/seat?perfId=10230520476167&table=1&productId=10230521336971",
+
+    # FUCK NEWS
+    "https://tbpgpal.checkout.tuboleta.com/selection/event/date?productId=10230576245316",
+    # "https://tbpgpal.checkout.tuboleta.com/selection/event/seat?perfId=10230576236233&table=1&productId=10230576245316",
+
+    # LA OREJA DE VAN GOGH
+    "https://tbpgpal.checkout.tuboleta.com/selection/event/date?productId=10230529413044",
+
+    # MARCO ANTONIO MEDELLIN
+    # "https://tuboletapass.checkout.tuboleta.com/selection/event/date?productId=10230519581504",
+    "https://tuboletapass.checkout.tuboleta.com/selection/event/seat?perfId=10230519581622&table=1&productId=10230519581504",
+
     # STREAM FIGHTERS
     # "https://www.taquillalive.com/performance-details/?artist=westcol&event=TCL.EVN1440.PRF1",
     # "https://www.taquillalive.com/book-performance/?artist=westcol&event=TCL.EVN1440.PRF1",
-
-    # FEID
-    "https://www.taquillalive.com/performance-details/?artist=feid&event=TCL.EVN1389.PRF1",
-    "https://www.taquillalive.com/book-performance/?artist=feid&event=TCL.EVN1389.PRF1",
 
     # MANÁ
     "https://www.ticketmaster.co/event/mana-2026-venta-general",
@@ -91,15 +101,18 @@ URLS_A_MONITOREAR = [
     "https://www.ticketmaster.co/event/calvin-harris-venta-general",
 
     # BTS
+    "https://www.ticketmaster.co/event/bts-world-tour-2026",
     "https://www.ticketmaster.co/event/bts-world-tour-venta-general-viernes-2-octubre",
     "https://www.ticketmaster.co/event/bts-world-tour-venta-general-sabado-3-octubre",
+    "https://www.ticketmaster.co/event/bts-world-tour-army-membership-viernes-2-octubre",
+    "https://www.ticketmaster.co/event/bts-world-tour-army-membership-sabado-3-octubre",
 
     # KAROL G DEL 4
-    "https://www.ticketmaster.co/event/karol-g-viajando-por-el-mundo-tropitour-venta-general",
-    # KAROL G DEL 5
-    "https://www.ticketmaster.co/event/karol-g-viajando-por-el-mundo-tropitour-venta-general-segunda-fecha#",
-    # KAROL G DEL 6
-    "https://www.ticketmaster.co/event/karol-g-viajando-por-el-mundo-tropitour-venta-general-tercera-fech#",
+    # "https://www.ticketmaster.co/event/karol-g-viajando-por-el-mundo-tropitour-venta-general",
+    # # KAROL G DEL 5
+    # "https://www.ticketmaster.co/event/karol-g-viajando-por-el-mundo-tropitour-venta-general-segunda-fecha#",
+    # # KAROL G DEL 6
+    # "https://www.ticketmaster.co/event/karol-g-viajando-por-el-mundo-tropitour-venta-general-tercera-fech#",
 
     # CAMILO
     # "https://breakfast.checkout.tuboleta.com/selection/event/seat?perfId=10230441698792&table=1&productId=10230441698670",
@@ -153,6 +166,19 @@ URLS_A_MONITOREAR = [
 
 FILTROS_LOCALIDADES = {
 
+    # FUCK NEWS
+    "https://tbpgpal.checkout.tuboleta.com/selection/event/date?productId=10230576245316":
+        ["PLATEA", "218", "209", "301", "BOLETAS"],
+
+    # POSADA
+    "https://tbpgpal.checkout.tuboleta.com/selection/event/seat?perfId=10230520476167&table=1&productId=10230521336971":
+        ["SEGUNDO PISO", "PISO 2"],
+
+    # MARCO ANTONIO MEDELLIN
+    # "https://tuboletapass.checkout.tuboleta.com/selection/event/date?productId=10230519581504",
+    "https://tuboletapass.checkout.tuboleta.com/selection/event/seat?perfId=10230519581622&table=1&productId=10230519581504":
+        ["GRADERIA"],
+
     # MANÁ
     "https://www.ticketmaster.co/event/mana-2026-venta-general":
         ['PLATEA A'],
@@ -179,7 +205,8 @@ FILTROS_LOCALIDADES = {
     # KRIS R FUNCIONAL
     # "https://breakfast.checkout.tuboleta.com/selection/event/date?productId=10230387611599",
     "https://breakfast.checkout.tuboleta.com/selection/event/seat?perfId=10230398494504&table=1&productId=10230387611599":
-        ["TRIBUNA", "PLATEA",
+        ["TRIBUNA",
+         # "PLATEA",
          "202", "206", "208", "302", "304", "305", "307"],
 
     # RYAN BOGOTÁ
