@@ -1,4 +1,5 @@
 import asyncio
+import glob
 import json
 import logging
 import os
@@ -12,12 +13,14 @@ import unicodedata
 from selenium import webdriver
 from selenium.common.exceptions import NoSuchElementException, TimeoutException, WebDriverException
 from selenium.webdriver.chrome.options import Options
+from selenium.webdriver.chrome.service import Service
 from selenium.webdriver.common.by import By
 from selenium.webdriver.support import expected_conditions as EC
 from selenium.webdriver.support.ui import WebDriverWait
 from telegram import Bot
 from telegram.error import TelegramError
 
+import reserva_ticketmaster
 from config import TELEGRAM_BOT_TOKEN, TELEGRAM_CHAT_ID
 
 # ============================================================
@@ -172,6 +175,10 @@ URLS_A_MONITOREAR = [
 # Si está en el diccionario, solo se notificará si coincide con una de las localidades
 
 FILTROS_LOCALIDADES = {
+
+    # VIVES PRUEBA (solo el VIP normal: "VIP" a secas casaria tambien con los dos "Paquete VIP")
+    "https://www.ticketmaster.co/event/carlos-vives-bucaramanga-venta-general":
+        ["VIP (silletería no numerada)"],
 
     # FUCK NEWS
     "https://tbpgpal.checkout.tuboleta.com/selection/event/date?productId=10230576245316":
@@ -332,10 +339,10 @@ def navegar(driver, url):
             pass
 
 
-def puerto_depuracion_activo():
-    """Indica si Chrome responde en su puerto de depuracion. Consulta local, milisegundos."""
+def puerto_depuracion_activo(puerto=None):
+    """Indica si un Chrome responde en su puerto de depuracion. Consulta local, milisegundos."""
     try:
-        with urllib.request.urlopen(f"http://127.0.0.1:{PUERTO_DEPURACION}/json/version", timeout=2):
+        with urllib.request.urlopen(f"http://127.0.0.1:{puerto or PUERTO_DEPURACION}/json/version", timeout=2):
             return True
     except Exception:
         return False
@@ -1671,6 +1678,24 @@ LECTURAS_VACIAS_PARA_OLVIDAR = 3  # Lecturas seguidas sin verla antes de darla p
 # boleteras. La deduplicacion cambia cuando se avisa, no cada cuanto se consulta.
 PAUSA_TRAS_DISPONIBILIDAD = 5  # Segundos
 
+# Reserva automatica en Ticketmaster: URL -> maximo de boletas a pedir (tope de
+# la plataforma: 4). Solo las URLs listadas aqui reservan; el resto solo avisa.
+# La clave debe coincidir caracter por caracter con URLS_A_MONITOREAR. Cuando un
+# sector del filtro aparece NUEVO, el bot abre otra pestana, reserva hasta la
+# pantalla de pago y avisa por Telegram: el pago lo hace siempre el usuario.
+# Vacio = el monitor se comporta como siempre (solo observa y notifica).
+#
+# Navegador donde se reserva: puerto de depuracion de un navegador APARTE del que
+# vigila (Comet, con su propio perfil y sesion de Ticketmaster; se abre con
+# iniciar_comet_debug.bat). Hace falta cuando el Chrome del monitor no carga bien
+# el mapa y el login (p. ej. por el antivirus). None = se reserva en una pestana
+# nueva del propio Chrome del monitor.
+RESERVA_PUERTO_DEPURACION = 9223
+
+RESERVAR_TICKETMASTER = {
+    "https://www.ticketmaster.co/event/carlos-vives-bucaramanga-venta-general": 4,
+}
+
 # Un bloqueo persiste; avisar en cada ronda solo cambiaria un problema de
 # ruido por otro. Un aviso por sitio y por hora basta para enterarse.
 INTERVALO_AVISO_BLOQUEO = 3600  # Segundos
@@ -1836,6 +1861,126 @@ def deshacer_avisos(estado, url, nuevas, recordatorios):
         registro = estado.get(_clave_estado(url, localidad))
         if registro is not None:
             registro["ultimo_aviso"] = 0
+
+
+_ULTIMA_RESERVA = {}  # url -> hora de la ultima reserva (en memoria)
+_NAVEGADOR_RESERVA = []  # driver ya conectado al navegador de reserva (0 o 1)
+
+
+def _chromedriver_para(version):
+    """
+    Ruta de un chromedriver de la misma version mayor que `version` ("153.0.x.y"),
+    buscado en la cache de Selenium Manager, o None si no hay.
+
+    Hace falta porque Selenium elige el driver por el Chrome INSTALADO (154 aqui)
+    y Comet va con otro Chromium (153): el driver equivocado no se engancha.
+    """
+    mayor = str(version).split(".")[0]
+    cache = os.path.join(os.path.expanduser("~"), ".cache", "selenium", "chromedriver")
+    candidatos = sorted(glob.glob(os.path.join(cache, "*", f"{mayor}.*", "chromedriver*")))
+    return candidatos[-1] if candidatos else None
+
+
+def navegador_reserva(driver_monitor):
+    """
+    Devuelve (driver, motivo_de_fallo) del navegador donde se reserva.
+
+    Con RESERVA_PUERTO_DEPURACION se usa un navegador aparte (Comet con el perfil
+    de reserva, ver iniciar_comet_debug.bat); sin el, el propio Chrome del
+    monitor. El motivo de fallo es texto para el aviso de Telegram.
+    """
+    puerto = RESERVA_PUERTO_DEPURACION
+    if not puerto:
+        return driver_monitor, None
+
+    # Se mira el puerto antes que nada: contra un navegador cerrado, chromedriver
+    # tarda un minuto en rendirse (medido con Chrome).
+    if not puerto_depuracion_activo(puerto):
+        return None, (f"el navegador de reserva no responde en el puerto {puerto}; "
+                      "abre iniciar_comet_debug.bat")
+    if _NAVEGADOR_RESERVA:
+        viva = _NAVEGADOR_RESERVA[0]
+        try:
+            viva.current_window_handle
+            return viva, None
+        except Exception:
+            soltar_sesion(viva)
+            _NAVEGADOR_RESERVA.clear()
+
+    try:
+        with urllib.request.urlopen(f"http://127.0.0.1:{puerto}/json/version", timeout=3) as r:
+            version = json.load(r).get("Browser", "").split("/")[-1]
+        ruta = _chromedriver_para(version)
+        opciones = Options()
+        opciones.add_experimental_option("debuggerAddress", f"127.0.0.1:{puerto}")
+        servicio = Service(executable_path=ruta) if ruta else Service()
+        nuevo = webdriver.Chrome(service=servicio, options=opciones)
+        nuevo.set_script_timeout(TIEMPO_MAXIMO_SCRIPT)
+        nuevo.set_page_load_timeout(TIEMPO_MAXIMO_CARGA)
+    except Exception as e:
+        log.exception("RESERVA: no se pudo conectar al navegador de reserva")
+        return None, f"no pude conectar al navegador de reserva ({type(e).__name__}); ¿versión de chromedriver?"
+    _NAVEGADOR_RESERVA.append(nuevo)
+    log.info(f"RESERVA: conectado al navegador de reserva (puerto {puerto}, driver {ruta or 'automatico'})")
+    return nuevo, None
+
+
+def intentar_reserva(driver, url, sectores, nombre_evento):
+    """
+    Reserva en una pestana nueva y avisa por Telegram del resultado.
+
+    La pestana del monitor no se toca: el monitor sigue en ella despues. Si se
+    llego al pago (o quedaron boletas retenidas), la pestana nueva se deja
+    abierta para que el usuario termine; si fallo limpio, se cierra.
+
+    Nunca lanza: un fallo de la reserva no puede tumbar el bucle de monitoreo.
+    """
+    maximo = RESERVAR_TICKETMASTER.get(url)
+    sectores = [s for s in sectores if MARCADOR_SIN_DETALLE not in s]
+    if not maximo or not sectores:
+        return None
+
+    # Si el aviso de Telegram fallo, el sector vuelve a ser "nuevo" en la ronda
+    # siguiente: sin este freno se reservaria dos veces lo mismo. Solo cuenta si
+    # hubo reserva (o boletas retenidas); un fallo limpio puede reintentarse.
+    if time.time() - _ULTIMA_RESERVA.get(url, 0) < INTERVALO_RECORDATORIO:
+        print("   🎟️ Ya se reservo hace poco en este evento; no se repite")
+        return None
+
+    print(f"   🎟️ Reservando {maximo} boleta(s) en una pestaña nueva...")
+    log.warning(f"RESERVA: intentando {sectores} (max {maximo}) | {url}")
+    navegador, motivo = navegador_reserva(driver)
+    if navegador is None:
+        reserva = reserva_ticketmaster.Reserva(False, sectores[0], detalle=motivo)
+        log.warning(f"RESERVA FALLO: {motivo} | {url}")
+        enviar_notificacion(reserva_ticketmaster.mensaje(reserva, nombre_evento, url, time.strftime('%H:%M:%S')))
+        return reserva
+
+    original = navegador.current_window_handle
+    cerrar = False
+    try:
+        navegador.switch_to.new_window("tab")
+        pagina = reserva_ticketmaster.PaginaSelenium(navegador, url, navegar)
+        reserva = reserva_ticketmaster.reservar(pagina, sectores, maximo=maximo)
+        cerrar = not reserva.ok and not reserva.retenidas
+    except Exception as e:
+        log.exception(f"RESERVA: error inesperado | {url}")
+        reserva = reserva_ticketmaster.Reserva(False, sectores[0], detalle=f"error inesperado: {e}", retenidas=True)
+    finally:
+        try:
+            if cerrar:
+                navegador.close()
+            navegador.switch_to.window(original)
+        except WebDriverException:
+            log.exception("RESERVA: no se pudo volver a la pestaña original")
+
+    if reserva.ok or reserva.retenidas:
+        _ULTIMA_RESERVA[url] = time.time()
+    resultado = "OK" if reserva.ok else "FALLO"
+    log.warning(f"RESERVA {resultado}: {reserva} | {url}")
+    print(f"   🎟️ Reserva {resultado}: {reserva.detalle or str(reserva.cantidad) + ' boleta(s)'}")
+    enviar_notificacion(reserva_ticketmaster.mensaje(reserva, nombre_evento, url, time.strftime('%H:%M:%S')))
+    return reserva
 
 
 def monitorear_urls(driver):
@@ -2006,6 +2151,11 @@ def monitorear_urls(driver):
                         # Persistir tras avisar: si el script muere ahora, al reiniciar
                         # no repite los avisos ya enviados (ni da por enviados los fallidos).
                         guardar_estado(estado)
+                        # La reserva va DESPUES del aviso (sale en ~1 s) y solo ante
+                        # sectores nuevos: un recordatorio no vuelve a reservar.
+                        if nuevas and es_url_ticketmaster(url_final):
+                            intentar_reserva(driver, url_final, nuevas, nombre_evento)
+
                         print()
                         if enviado:
                             print("✅ Notificación enviada. Continuando monitoreo...")
