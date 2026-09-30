@@ -22,6 +22,9 @@ import types
 import unittest
 
 RAIZ = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+# El monitor importa reserva_ticketmaster, que vive junto a el en la raiz.
+if RAIZ not in sys.path:
+    sys.path.insert(0, RAIZ)
 SCRIPT = os.path.join(RAIZ, "main13_filters_all_urls lina.py")
 
 
