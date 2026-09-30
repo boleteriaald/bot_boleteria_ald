@@ -6,7 +6,9 @@ Complementa las reglas globales de `~/.claude/CLAUDE.md`, que siguen aplicando.
 
 Monitor con Selenium que revisa URLs de Tuboleta/checkout, Pásala (reventa),
 Ticketmaster.co y TaquillaLive, y avisa por Telegram cuando aparecen localidades
-disponibles. **No compra**: solo observa y notifica. Ver `README.md`.
+disponibles. **No paga nunca**: observa y notifica; solo en Ticketmaster y solo para
+las URLs de `RESERVAR_TICKETMASTER` (vacío por defecto) reserva boletas hasta la
+pantalla de pago y deja el pago al usuario (`reserva_ticketmaster.py`). Ver `README.md`.
 
 Repositorio: `boleteriaald/bot_boleteria_ald` — **es público**.
 
@@ -136,6 +138,51 @@ Descubierto contra páginas reales; conviene no volver a aprenderlo a golpes.
 - `bts-world-tour-2026` es el índice con 4 botones (Preventa Army Membership y Venta
   General × 2 y 3 de octubre). El monitor solo vigila las dos Venta General; las URLs
   de Army Membership son `bts-world-tour-army-membership-{viernes-2,sabado-3}-octubre`.
+
+## Reserva en Ticketmaster: lo que ya se sabe
+
+Flujo real (Carlos Vives Bucaramanga, sep-2026, hecho a mano por Claude in Chrome):
+Ver entradas → sector → tarifa con "+" → Continuar (boletas listadas) → Continuar →
+garantía → Continuar → entrega → Confirmar reserva → pago ("La reserva expira en
+~05:00"). Decisiones fijas del usuario: **nunca** Garantía Extendida (viene marcada de
+fábrica y suma su línea al resumen; hay que pulsar "no gracias"), **siempre** "Boleto
+Digital en la App" aunque haya otras entregas, y **parar antes de pagar**: el bot no
+toca ningún medio de pago ni escribe datos de tarjeta.
+
+- El catálogo **no dice cuántas boletas quedan**: solo `lowAvailability` y `max: 4` en
+  la tarifa. Si pides más de las libres, la página lo rechaza y hay que limpiar la
+  selección y volver a elegir; por eso se baja 4 → 3 → 2 → 1.
+- Hay **dos botones "Continuar"** en la pantalla de selección y uno no hace nada:
+  de ahí el "primer clic perdido". Hay un único reintento de clic por pantalla, nunca
+  una recarga. Además hay un "Continuar" de un diálogo oculto (cuenta creada).
+- Garantía (verificado en vivo con la reserva real, 30-sep-2026): `ul.insurance-options
+  > li`, la elegida lleva la clase `active` y su línea "GARANTIA EXTENDIDA" aparece en
+  el resumen. "no gracias" **no es un elemento propio**, es un nodo de texto suelto
+  junto a un `<strong>`: buscarlo por texto fallaba y la reserva se quedaba con 4
+  boletas retenidas. Se hace clic en `.insurance-header` del `<li>` que lo contiene.
+- Entrega: `<h2>` dentro de `li.delivery-select`; un clic en él avanza a la
+  confirmación. "Confirmar reserva" es un único `<a class="btn btn-primary">`.
+- Cancelar una prueba: "Cancelar compra" abre un diálogo y hay que pulsar "Aceptar".
+  Hasta "Confirmar reserva" la página dice que las entradas "todavía no están
+  reservadas".
+- Con una pestaña en segundo plano (o ventana oculta) las capturas de pantalla de la
+  extensión se cuelgan; `get_page_text` sigue funcionando.
+- **Dónde se reserva**: en el equipo de Aldemar el Chrome del monitor (perfil
+  `C:\selenium\ChromeProfile`) no carga el mapa ni deja iniciar sesión (Bitdefender);
+  la primera prueba real falló ahí con "no se pudo abrir el mapa". Por eso
+  `RESERVA_PUERTO_DEPURACION = 9223` apunta a un Comet aparte (`iniciar_comet_debug.bat`,
+  perfil `C:\selenium\CometProfile`, sesión de Ticketmaster iniciada una vez a mano).
+  El monitor sigue leyendo con su Chrome; solo la reserva usa Comet. `None` = reservar
+  en una pestaña del Chrome del monitor.
+- Comet trae su propio Chromium (153) y Selenium elige el chromedriver por el Chrome
+  instalado (154): `_chromedriver_para()` busca en la caché de Selenium Manager el
+  driver de la misma versión mayor. Si no hay, el aviso lo dice.
+- El estado de avisos cuenta: la reserva solo se dispara con un sector **nuevo**. Para
+  reprobar con un sector ya avisado hay que parar el monitor y quitar esa clave de
+  `estado_notificaciones.json` (solo esa, no el archivo entero).
+- **Sin verificar en vivo**: el texto exacto del aviso de "no hay boletas" y los
+  selectores de `PaginaSelenium` (hasta ahora solo probados contra una página
+  simulada). Hacer una reserva real supervisada antes de dejarlo sin vigilancia.
 
 ## TaquillaLive: lo que ya se sabe
 

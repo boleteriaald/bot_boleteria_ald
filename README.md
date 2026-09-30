@@ -30,10 +30,16 @@ boletas, detecta cuándo aparecen localidades disponibles y avisa por **Telegram
 
 ## Qué NO hace
 
-- **No compra boletas.** No selecciona asientos, no agrega al carrito y no paga.
-  Solo observa y avisa; la compra la haces tú, a mano, en **otra pestaña** de la
-  ventana de Chrome del monitor. La pestaña que usa el bot cambia de página en cada
-  consulta, así que si compras en ella te la quitará de las manos.
+- **No paga nunca.** Por defecto solo observa y avisa. Solo en Ticketmaster, y solo
+  para las URLs que actives en `RESERVAR_TICKETMASTER`, el bot además **reserva**
+  (hasta 4 boletas, bajando a 3, 2 o 1 si no hay tantas) en una pestaña nueva y te
+  avisa por Telegram; se detiene en "Selecciona cómo deseas abonar" y el pago lo
+  haces tú dentro de los ~5 minutos que dura la reserva. Nunca acepta la Garantía
+  Extendida y siempre elige "Boleto Digital en la App". Ver `reserva_ticketmaster.py`.
+  Reserva en un navegador aparte (Comet, `iniciar_comet_debug.bat`, puerto 9223) con
+  su propia sesión de Ticketmaster; ver `RESERVA_PUERTO_DEPURACION`.
+  En el resto de plataformas la compra es a mano, en **otra pestaña**: la pestaña del
+  bot cambia de página en cada consulta y te la quitaría de las manos.
 - No inicia sesión por ti. Debes estar logueado previamente en el perfil de Chrome
   que usa el monitor.
 - No envía WhatsApp. Ese canal existió (vía CallMeBot) y se retiró; el único canal
