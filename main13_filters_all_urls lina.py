@@ -814,6 +814,16 @@ def verificar_disponibilidad_ticketmaster(driver, url):
         nombre_evento = obtener_nombre_evento(driver)
         print(f"   Evento: {nombre_evento}")
 
+        # Cola de Queue-it por dominio, antes que nada: no depende del texto
+        # (que cambia segun el estado de la fila y puede pasar de
+        # LONGITUD_MAXIMA_PAGINA_ESPERA) ni puede confundirse con un bloqueo.
+        # Verificado en vivo con BTS (sep-2026): el evento redirige a
+        # ticketmasterco.queue-it.net.
+        if "queue-it.net" in (driver.current_url or "").lower():
+            print("   SALA DE ESPERA detectada (redireccion a queue-it.net) - LA VENTA ESTA ABIERTA")
+            log.warning(f"SALA DE ESPERA (redireccion a queue-it.net): la venta abrio | {url}")
+            return [f"{nombre_evento} - SALA DE ESPERA, la venta abrio {MARCADOR_SIN_DETALLE}"], [], url
+
         bloqueado, motivo = detectar_bloqueo(driver)
         if bloqueado:
             print(f"   BLOQUEO detectado: {motivo}")
@@ -863,6 +873,12 @@ def verificar_disponibilidad_ticketmaster(driver, url):
             print("   AGOTADO - el evento no tiene localidades a la venta")
             return [], [nombre_evento], url
 
+        # Un evento terminado no vuelve a abrir venta: sin esto caeria en el
+        # aviso de "la pagina cambio" de mas abajo en cada ronda.
+        if "EVENTO FINALIZADO" in texto_pagina.upper():
+            print("   EVENTO FINALIZADO - sin venta")
+            return [], [nombre_evento], url
+
         # Cola virtual: la venta esta abierta, solo que hay fila. Es el aviso
         # mas urgente de todos, aunque no se pueda decir que localidades hay.
         en_cola, senal_cola = detectar_sala_espera(texto_pagina)
@@ -880,8 +896,26 @@ def verificar_disponibilidad_ticketmaster(driver, url):
             print("   Boton 'Ver entradas' presente - HAY VENTA ABIERTA")
             return [f"{nombre_evento} - venta abierta {MARCADOR_SIN_DETALLE}"], [], url
         except NoSuchElementException:
-            print("   Boton 'Ver entradas' ausente - AGOTADO / SIN VENTA")
+            pass
+
+        # Ni catalogo, ni AGOTADO, ni fila, ni boton. Antes esto se daba por
+        # agotado, y fue un error caro: en BTS (29-sep-2026) la pagina dejo de
+        # decir AGOTADO a las 14:28 y la fila de Queue-it aparecio a las 14:38.
+        # Esos 10 minutos son la pre-fila, donde Queue-it sortea el orden entre
+        # todos los que ya esperan y deja detras a los que llegan despues. El
+        # bot los reporto como agotado y el primer aviso salio a las 14:41,
+        # con ~18.000 personas delante. Una pagina que no se entiende no es un
+        # agotado: se avisa. Una pagina vacia (carga cortada) si se deja como
+        # antes, porque eso no es un cambio de la pagina sino una lectura fallida.
+        if not texto_pagina.strip():
+            print("   Pagina vacia - sin lectura")
             return [], [nombre_evento], url
+
+        print("   La pagina ya no dice AGOTADO y no se reconoce - posible pre-fila o venta a punto de abrir")
+        log.warning(f"Ticketmaster: pagina sin AGOTADO ni catalogo ni boton, posible pre-fila "
+                    f"(url actual: {driver.current_url}) | {url}")
+        return [f"{nombre_evento} - la pagina cambio, posible pre-fila o venta a punto de abrir "
+                f"{MARCADOR_SIN_DETALLE}"], [], url
 
     except Exception as e:
         print(f"Error al verificar disponibilidad en Ticketmaster: {e}")
