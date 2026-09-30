@@ -73,8 +73,11 @@ def preparar_consola():
 
 URLS_A_MONITOREAR = [
 
+    # VIVES PRUEBA
+    "https://www.ticketmaster.co/event/carlos-vives-bucaramanga-venta-general",
+
     # POSADA
-    "https://tbpgpal.checkout.tuboleta.com/selection/event/seat?perfId=10230520476167&table=1&productId=10230521336971",
+    # "https://tbpgpal.checkout.tuboleta.com/selection/event/seat?perfId=10230520476167&table=1&productId=10230521336971",
 
     # FUCK NEWS
     "https://tbpgpal.checkout.tuboleta.com/selection/event/date?productId=10230576245316",
@@ -85,7 +88,8 @@ URLS_A_MONITOREAR = [
 
     # MARCO ANTONIO MEDELLIN
     # "https://tuboletapass.checkout.tuboleta.com/selection/event/date?productId=10230519581504",
-    "https://tuboletapass.checkout.tuboleta.com/selection/event/seat?perfId=10230519581622&table=1&productId=10230519581504",
+    "https://tuboletapass.checkout.tuboleta.com/selection/event/seat?perfId=10230519581622&productId=10230519581504",
+    # "https://tuboletapass.checkout.tuboleta.com/selection/event/seat?perfId=10230519581622&table=1&productId=10230519581504",
 
     # STREAM FIGHTERS
     # "https://www.taquillalive.com/performance-details/?artist=westcol&event=TCL.EVN1440.PRF1",
@@ -101,7 +105,10 @@ URLS_A_MONITOREAR = [
     "https://www.ticketmaster.co/event/calvin-harris-venta-general",
 
     # BTS
-    "https://www.ticketmaster.co/event/bts-world-tour-2026",
+    # "https://www.ticketmaster.co/event/bts-world-tour-venta-general-viernes-2-octubre",
+    # "https://www.ticketmaster.co/event/bts-world-tour-venta-general-sabado-3-octubre",
+    # "https://www.ticketmaster.co/event/bts-world-tour-venta-general-sabado-3-octubre#",
+    # "https://www.ticketmaster.co/event/bts-world-tour-2026",
     "https://www.ticketmaster.co/event/bts-world-tour-venta-general-viernes-2-octubre",
     "https://www.ticketmaster.co/event/bts-world-tour-venta-general-sabado-3-octubre",
     "https://www.ticketmaster.co/event/bts-world-tour-army-membership-viernes-2-octubre",
@@ -176,7 +183,8 @@ FILTROS_LOCALIDADES = {
 
     # MARCO ANTONIO MEDELLIN
     # "https://tuboletapass.checkout.tuboleta.com/selection/event/date?productId=10230519581504",
-    "https://tuboletapass.checkout.tuboleta.com/selection/event/seat?perfId=10230519581622&table=1&productId=10230519581504":
+    # "https://tuboletapass.checkout.tuboleta.com/selection/event/seat?perfId=10230519581622&table=1&productId=10230519581504":
+    "https://tuboletapass.checkout.tuboleta.com/selection/event/seat?perfId=10230519581622&productId=10230519581504":
         ["GRADERIA"],
 
     # MANÁ
@@ -186,8 +194,9 @@ FILTROS_LOCALIDADES = {
     # OMAR COURTZ 12--NOV
     # "https://tbpgpal.checkout.tuboleta.com/selection/event/seat?perfId=10230527903278&productId=10230523214255":
     "https://tbpgpal.checkout.tuboleta.com/selection/event/seat?perfId=10230527903278&table=1&productId=10230523214255":
-        [  # "TRIBUNA",
-            "PLATEA"],
+        ["TRIBUNA"
+         # "PLATEA"
+         ],
 
     # OMAR COURTZ 12--NOV
     "https://pasala.checkout.tuboleta.com/selection/resale/item?performanceId=10230527903278&productId=10230523214255&lang=es":
@@ -196,7 +205,9 @@ FILTROS_LOCALIDADES = {
     # OMAR COURTZ 13--NOV
     "https://tbpgpal.checkout.tuboleta.com/selection/event/seat?perfId=10230524219204&productId=10230523214255":
     # "https://tbpgpal.checkout.tuboleta.com/selection/event/seat?perfId=10230524219204&table=1&productId=10230523214255":
-        ["TRIBUNA", "PLATEA"],
+        ["TRIBUNA"
+         # "PLATEA"
+         ],
 
     # OMAR COURTZ 13--NOV
     "https://pasala.checkout.tuboleta.com/selection/resale/item?performanceId=10230524219204&productId=10230523214255&lang=es":
