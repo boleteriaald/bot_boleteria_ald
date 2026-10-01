@@ -27,7 +27,7 @@ Bucaramanga (sep-2026). Lo que NO esta verificado en vivo esta marcado abajo.
 import re
 import time
 import unicodedata
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 MAXIMO_POR_LOCALIDAD = 4       # Tope de Ticketmaster por localidad
 ESPERA_RESPUESTA = 8           # Segundos antes de dar un clic por perdido
@@ -42,9 +42,10 @@ RECHAZO_GARANTIA = "no gracias"
 RE_EXPIRA = re.compile(r"La reserva expira en\s*(\d{1,2}:\d{2})", re.I)
 # Pantalla de pago: la lista de medios ("Selecciona como deseas abonar") o, si el perfil
 # ya trae un medio elegido, directamente el formulario ("Ingresa los datos de tu
-# tarjeta", visto en la 4a reserva real). El contador "La reserva expira en" solo
-# aparece ya en la etapa de pago.
-RE_PAGO = re.compile(r"Selecciona c.mo deseas abonar|Ingresa los datos de tu tarjeta|La reserva expira en", re.I)
+# tarjeta", visto en la 4a reserva real). OJO: el contador "La reserva expira en" NO
+# sirve de senal: en las localidades numeradas arranca al asignar los asientos, dos
+# pantallas antes del pago (Iron Maiden, 1-oct-2026).
+RE_PAGO = re.compile(r"Selecciona c.mo deseas abonar|Ingresa los datos de tu tarjeta", re.I)
 RE_GARANTIA = re.compile(r"recuperar el total de tu compra", re.I)
 RE_ENTREGA = re.compile(r"Selecciona c.mo deseas recibir", re.I)
 RE_TOTAL = re.compile(r"Total\s*\$\s*([\d.]+)")
@@ -56,8 +57,14 @@ RE_LINEA_GARANTIA = re.compile(r"^\s*GARANTIA EXTENDIDA\s*$", re.M)
 # seccion". Por eso solo cuenta si aparece DESPUES del clic (no estaba antes),
 # y la falta de respuesta se trata igual que un error.
 RE_SIN_BOLETAS = re.compile(
-    r"no hay (boletas|entradas|tickets)|sin disponibilidad|ya no (hay|est.n)|no est. disponible", re.I)
+    r"no hay (boletas|entradas|tickets|asientos)|sin disponibilidad|ya no (hay|est.n)|no est. disponible",
+    re.I)
 # Conteo que muestra el selector: va en la linea justo despues del precio.
+# Aviso REAL cuando se pide mas de lo que hay (visto en Iron Maiden, sector 107, 1-oct-2026): el
+# "+" se frena en el maximo disponible y muestra "Limite de cantidad / Has seleccionado el
+# maximo disponible para esta tarifa". No espera al Continuar: hay que dejar de pulsar.
+AVISO_LIMITE = "Límite de cantidad"
+BOTON_ASIENTOS = "Buscar mejores asientos"
 RE_CANTIDAD = re.compile(r"\$\s*[\d.]+\s*\+\s*\$\s*[\d.]+\s*\n\s*(\d+)\s*\n")
 
 
@@ -72,6 +79,7 @@ class Reserva:
     detalle: str = ""
     retenidas: bool = False  # hay boletas retenidas aunque no se llegara al pago
     conservar_pestana: bool = False  # no cerrar la pestana (p. ej. esta en una fila de Queue-it)
+    intentos: list = field(default_factory=list)  # ['4: rechazada [texto de la pagina]', '3: ok']
 
 
 def _sin_acentos(texto):
@@ -79,9 +87,34 @@ def _sin_acentos(texto):
     return "".join(c for c in base if unicodedata.category(c) != "Mn").lower()
 
 
+def _lineas_nuevas(antes, ahora):
+    """Texto que aparecio en la pagina tras un clic, en una linea, para dejarlo en el registro."""
+    previas = {l.strip() for l in antes.splitlines()}
+    nuevas = [l.strip() for l in ahora.splitlines() if l.strip() and l.strip() not in previas]
+    return " / ".join(nuevas)[:160]
+
+
+def _normalizar(texto):
+    """Minusculas, sin tildes y con los guiones como espacio: igual que el filtro del monitor."""
+    texto = _sin_acentos(texto)
+    for separador in "-–—,/":
+        texto = texto.replace(separador, " ")
+    return " ".join(texto.split())
+
+
 def _continuar_seleccion(pagina):
-    """Pulsa Continuar con la cantidad elegida. True si las boletas quedaron listadas."""
+    """
+    Pulsa Continuar con la cantidad elegida.
+
+    Devuelve (ok, nota): ok si las boletas quedaron listadas; nota, cuando se
+    rechaza, es el texto nuevo que mostro la pagina (el aviso real de "no hay
+    boletas", que aun no se ha visto nunca: queda en el registro para saberlo).
+    """
     antes = pagina.texto()
+    # En una localidad NUMERADA no hay Continuar en este paso: el boton es "Buscar mejores
+    # asientos", que asigna los asientos juntos y deja listadas las boletas (con el contador
+    # de la reserva ya corriendo). Si no hay, la pagina dice "No hay asientos libres".
+    boton = BOTON_ASIENTOS if BOTON_ASIENTOS in antes else "Continuar"
 
     def resuelto(t):
         if "Cambiar tarifa" in t:
@@ -91,11 +124,11 @@ def _continuar_seleccion(pagina):
     # Observado en vivo: el primer clic a veces no hace nada y el segundo si.
     # Es un unico reintento de clic en la misma pantalla, nunca una recarga.
     for espera in (ESPERA_RESPUESTA, ESPERA_PASO):
-        pagina.clic("Continuar")
+        pagina.clic(boton)
         t = pagina.esperar(resuelto, espera)
         if t is not None:
-            return "Cambiar tarifa" in t
-    return False
+            return "Cambiar tarifa" in t, ("" if "Cambiar tarifa" in t else _lineas_nuevas(antes, t))
+    return False, "sin respuesta: " + _lineas_nuevas(antes, pagina.texto())
 
 
 def _hasta_pago(pagina, sector, cantidad, pedidas, limite, reloj):
@@ -151,25 +184,37 @@ def _hasta_pago(pagina, sector, cantidad, pedidas, limite, reloj):
 def _reservar_sector(pagina, sector, maximo, minimo, limite, reloj):
     """Prueba 4, 3, 2, 1: la pagina no dice cuantas hay, solo rechaza las que sobran."""
     n = maximo
+    intentos = []
     while n >= minimo:
         if reloj() > limite:
-            return Reserva(False, sector, pedidas=maximo, detalle="se acabo el tiempo")
+            return Reserva(False, sector, pedidas=maximo, detalle="se acabo el tiempo", intentos=intentos)
         if not pagina.elegir_sector(sector):
-            return Reserva(False, sector, pedidas=maximo, detalle="el sector no aparece o no se pudo abrir")
+            return Reserva(False, sector, pedidas=maximo, intentos=intentos,
+                           detalle="el sector no aparece o no se pudo abrir")
 
         marcadas = pagina.fijar_cantidad(n)
         if marcadas < minimo:
             pagina.limpiar()
-            return Reserva(False, sector, pedidas=maximo,
+            intentos.append(f"{n}: el selector no pasa de {marcadas}")
+            return Reserva(False, sector, pedidas=maximo, intentos=intentos,
                            detalle=f"el selector no pasa de {marcadas} boleta(s)")
 
-        if _continuar_seleccion(pagina):
-            return _hasta_pago(pagina, sector, marcadas, maximo, limite, reloj)
+        if marcadas < n:
+            aviso = getattr(pagina, "aviso_limite", "")
+            intentos.append(f"{n}: selector frenado en {marcadas}" + (f" [{aviso}]" if aviso else ""))
 
+        ok, nota = _continuar_seleccion(pagina)
+        if ok:
+            intentos.append(f"{marcadas}: ok")
+            resultado = _hasta_pago(pagina, sector, marcadas, maximo, limite, reloj)
+            resultado.intentos = intentos
+            return resultado
+
+        intentos.append(f"{marcadas}: rechazada [{nota}]")
         pagina.limpiar()
         # Si el selector ya se quedo corto (marco 2 de 4), no se repite ese numero.
         n = min(n, marcadas) - 1
-    return Reserva(False, sector, pedidas=maximo,
+    return Reserva(False, sector, pedidas=maximo, intentos=intentos,
                    detalle=f"no hay boletas ni para {minimo} en este momento")
 
 
@@ -193,6 +238,30 @@ def reservar(pagina, sectores, maximo=MAXIMO_POR_LOCALIDAD, minimo=1, reloj=time
     return ultimo
 
 
+def _resumen_intentos(reserva):
+    """'Intentos: 4 no, 3 no, 2 si' a partir de la lista detallada."""
+    partes = []
+    for i in reserva.intentos:
+        numero, _, resto = i.partition(":")
+        partes.append(f"{numero} {'si' if resto.strip() == 'ok' else 'no'}")
+    return "Intentos: " + ", ".join(partes)
+
+
+def mensaje_resumen(reservas, evento, url, hora):
+    """Resumen cuando se reservaron varias localidades: cual elegir y que las demas vencen solas."""
+    listas = [r for r in reservas if r.ok]
+    if not listas:
+        return f"⚠️ NINGUNA RESERVA LISTA\n\n📌 {evento}\nSe intentaron {len(reservas)}, ninguna se pudo.\n🔗 {url}\n\n⏰ {hora}"
+    texto = f"🎟️ {len(listas)} RESERVA(S) LISTA(S) - ELIGE CUAL PAGAR\n\n📌 {evento}\n"
+    for r in listas:
+        texto += f"  • {r.cantidad} x {r.sector}" + (f" - {r.total}" if r.total else "") + (f" (vence en {r.expira})" if r.expira else "") + "\n"
+    fallidas = len(reservas) - len(listas)
+    if fallidas:
+        texto += f"({fallidas} no se pudieron reservar)\n"
+    return (texto + f"\nCada una esta en su pestana del navegador de reserva. Paga la que quieras;\n"
+            f"las demas vencen solas.\n🔗 {url}\n\n⏰ {hora}")
+
+
 def mensaje(reserva, evento, url, hora):
     """Texto del aviso de Telegram con el resultado de la reserva."""
     if reserva.ok:
@@ -200,6 +269,7 @@ def mensaje(reserva, evento, url, hora):
                  f"  • {reserva.cantidad} x {reserva.sector}\n")
         if reserva.cantidad < reserva.pedidas:
             texto += f"  • Solo se pudieron reservar {reserva.cantidad} de {reserva.pedidas}\n"
+            texto += f"  • {_resumen_intentos(reserva)}\n"
         if reserva.total:
             texto += f"💰 Total: {reserva.total}\n"
         if reserva.expira:
@@ -210,6 +280,8 @@ def mensaje(reserva, evento, url, hora):
     if reserva.sector:
         texto += f"  • {reserva.sector}\n"
     texto += f"Motivo: {reserva.detalle}\n"
+    if len(reserva.intentos) > 1:
+        texto += f"{_resumen_intentos(reserva)}\n"
     if reserva.retenidas:
         texto += (f"Ojo: hay {reserva.cantidad} boleta(s) retenidas en la pestana abierta; "
                   "termina a mano o se liberan solas.\n")
@@ -275,6 +347,31 @@ var li = Array.from(document.querySelectorAll('ul.insurance-options > li')).filt
 return !!li && li.classList.contains('active') && !/^\s*GARANTIA EXTENDIDA\s*$/m.test(document.body.innerText);
 """
 
+# El aviso "Limite de cantidad" es un DIALOGO (div.modal.in, role=dialog) con su propio
+# "Continuar" que solo lo cierra; mientras esta abierto tapa el "+" y los demas botones.
+JS_CERRAR_AVISO = """
+var m = Array.from(document.querySelectorAll('.modal.in')).filter(function (e) {
+    return e.getBoundingClientRect().width > 0;
+})[0];
+if (!m) { return null; }
+var b = Array.from(m.querySelectorAll('a,button')).filter(function (x) {
+    return /^continuar$/i.test((x.innerText || '').trim());
+})[0];
+return b || null;
+"""
+
+# Sector numerado con varias secciones: hay un paso "Seleccionar seccion" (111, 113...).
+# Verificado en vivo (Iron Maiden): las filas libres son div.item.sectionOption (OJO: no
+# sectorOption, que son las de sectores); las agotadas llevan "item-inactive" en vez de
+# esa clase y la etiqueta AGOTADO. Devuelve todas, con su nombre y si estan libres.
+JS_SECCIONES = _JS_VISIBLE + """
+return Array.from(document.querySelectorAll('.sectionOption, .item-inactive')).filter(vis).map(function (e) {
+    var h = e.querySelector('h5');
+    return {el: e, texto: (h ? h.innerText : e.innerText).trim(),
+            libre: e.classList.contains('sectionOption') && !/agotado/i.test(e.innerText || '')};
+});
+"""
+
 # El "+" es el ultimo boton sin texto del panel "Seleccionar tarifa" (el "-" va
 # antes). Se sube desde el titulo del panel hasta el primer contenedor que tenga
 # esos dos botones, para no confundirlo con el zoom del mapa.
@@ -307,6 +404,10 @@ class PaginaSelenium:
         self.cargar = cargar  # navegar() del monitor: respeta el limite de carga
         self.motivo = ""      # por que fallo abrir_mapa(), para el aviso de Telegram
         self.en_fila = False  # la pestana quedo en una fila de Queue-it
+        self.aviso_limite = ""  # aviso de la pagina si el "+" se freno antes de n
+        # Palabras de RESERVAR_TICKETMASTER["sectores"]: si una nombra una SECCION del sector
+        # numerado (p. ej. "107" dentro de "101 - 103 - 105 - 107"), solo se reserva esa.
+        self.claves_seccion = []
 
     def texto(self):
         try:
@@ -395,16 +496,18 @@ class PaginaSelenium:
             self.motivo = ("este navegador quedo en la fila de Queue-it; la pestana queda abierta "
                            "para no perder el puesto")
             return False
-        texto = self.esperar(lambda t: "Ver entradas" in t, ESPERA_PASO)
+        texto = self.esperar(lambda t: "Ver entradas" in t or "Seleccionar sector" in t, ESPERA_PASO)
         if texto is None:
-            self.motivo = (f"la pagina no mostro 'Ver entradas' en {ESPERA_PASO}s "
+            self.motivo = (f"la pagina no mostro 'Ver entradas' ni los sectores en {ESPERA_PASO}s "
                            "(carga lenta o bloqueada en este navegador)")
             return False
         # Sin sesion la reserva no pasa del primer Continuar: se dice desde ya.
         if "Cerrar sesión" not in texto and "Ingresar" in texto:
             self.motivo = "no hay sesion iniciada en Ticketmaster en este navegador"
             return False
-        self.clic("Ver entradas")
+        # Algunos eventos (Iron Maiden) no tienen "Ver entradas": ya muestran los sectores.
+        if "Seleccionar sector" not in texto:
+            self.clic("Ver entradas")
         if self.esperar(lambda t: "Seleccionar sector" in t, ESPERA_PASO) is None:
             self.motivo = (f"tras 'Ver entradas' no aparecio el panel de sectores en {ESPERA_PASO}s "
                            "(el mapa no cargo)")
@@ -414,25 +517,69 @@ class PaginaSelenium:
     def elegir_sector(self, nombre):
         if not self._clic_elemento(lambda: self.driver.execute_script(JS_ELEGIR_SECTOR, nombre)):
             return False
-        return self.esperar(lambda t: "Seleccionar tarifa" in t, ESPERA_PASO) is not None
+        t = self.esperar(lambda t: "Seleccionar tarifa" in t or "Seleccionar sección" in t, ESPERA_PASO)
+        if t is None:
+            return False
+        if "Seleccionar sección" in t and "Seleccionar tarifa" not in t:
+            if not self._clic_elemento(self._buscar_seccion):
+                return False   # la seccion pedida (o todas) esta agotada
+            return self.esperar(lambda t: "Seleccionar tarifa" in t, ESPERA_PASO) is not None
+        return True
 
-    def _cantidad(self):
-        m = RE_CANTIDAD.search(self.texto())
+    def _buscar_seccion(self):
+        """
+        Elemento de la seccion a reservar dentro de un sector numerado.
+
+        Si alguna palabra de claves_seccion nombra una seccion (libre o agotada), solo se
+        consideran esas: pedir "107" y reservar la 101 seria comprar lo que no se quiere.
+        Si ninguna la nombra (p. ej. "back"), vale la primera libre.
+        """
+        filas = self.driver.execute_script(JS_SECCIONES) or []
+        claves = [c for c in (_normalizar(k) for k in self.claves_seccion) if c]
+        coinciden = [f for f in filas if any(c in _normalizar(f["texto"]) for c in claves)]
+        for fila in (coinciden or filas):
+            if fila["libre"]:
+                return fila["el"]
+        return None
+
+    def _cantidad(self, texto=None):
+        m = RE_CANTIDAD.search(self.texto() if texto is None else texto)
         return int(m.group(1)) if m else 0
 
     def fijar_cantidad(self, n):
+        """Sube hasta n con el "+"; se frena donde la pagina diga que ya no hay mas."""
+        self.aviso_limite = ""
         actual = self._cantidad()
         while actual < n:
+            if AVISO_LIMITE in self.texto():
+                self._cerrar_aviso_limite()
+                break
             if not self._clic_elemento(lambda: self.driver.execute_script(JS_SUMAR)):
                 break
-            if self.esperar(lambda t: self._cantidad() > actual, ESPERA_RESPUESTA) is None:
+            if self.esperar(lambda t: self._cantidad(t) > actual or AVISO_LIMITE in t,
+                            ESPERA_RESPUESTA) is None:
                 break
-            actual = self._cantidad()
+            if AVISO_LIMITE in self.texto():
+                self._cerrar_aviso_limite()
+                break
+            nuevo = self._cantidad()
+            if nuevo <= actual:
+                break
+            actual = nuevo
         return actual
+
+    def _cerrar_aviso_limite(self):
+        """Cierra el dialogo "Limite de cantidad" (su Continuar solo lo cierra) y lo anota."""
+        self.aviso_limite = "Límite de cantidad: máximo disponible para esta tarifa"
+        self._clic_elemento(lambda: self.driver.execute_script(JS_CERRAR_AVISO))
+        self.esperar(lambda t: AVISO_LIMITE not in t, ESPERA_RESPUESTA)
 
     def limpiar(self):
         # Se deshace la seleccion desde la propia pagina; recargar es el ultimo recurso.
-        if self.clic("Limpiar selección") and \
-                self.esperar(lambda t: "Seleccionar sector" in t, ESPERA_RESPUESTA) is not None:
-            return True
+        # Tras "No hay asientos libres" el "Limpiar seleccion" no hace nada (visto en vivo):
+        # lo que devuelve a los sectores es el enlace "elige otra seccion".
+        for texto in ("elige otra sección", "Limpiar selección"):
+            if self.clic(texto) and \
+                    self.esperar(lambda t: "Seleccionar sector" in t, ESPERA_RESPUESTA) is not None:
+                return True
         return self.abrir_mapa()

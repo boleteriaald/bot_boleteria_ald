@@ -17,12 +17,14 @@ TEXTO_ERROR = "No hay boletas disponibles en esta sección"
 
 
 class PaginaFalsa:
+    numerada = False        # True: "Buscar mejores asientos" en vez de Continuar, y el contador corre desde ahi
 
     def __init__(self, cupo=4, tope=4, entregas=("Boleto Digital en la App (más seguro)",),
-                 garantia=True, mapa_abre=True, sectores=(SECTOR,), se_atasca_en=None):
+                 garantia=True, mapa_abre=True, sectores=(SECTOR,), se_atasca_en=None, numerada=False):
         self.cupo, self.tope, self.entregas = cupo, tope, entregas
         self.garantia_paso, self.mapa_abre, self.sectores = garantia, mapa_abre, sectores
         self.se_atasca_en = se_atasca_en
+        self.numerada = numerada
         self.estado = "evento"
         self.cantidad = 0
         self.sector = None
@@ -46,6 +48,7 @@ class PaginaFalsa:
 
     def fijar_cantidad(self, n):
         self.cantidad = min(n, self.tope)
+        self.aviso_limite = "Límite de cantidad: máximo disponible para esta tarifa" if self.tope < n else ""
         return self.cantidad
 
     def limpiar(self):
@@ -57,7 +60,11 @@ class PaginaFalsa:
         self.clics.append(texto)
         if self.estado == "evento":
             return False
+        if texto == rt.BOTON_ASIENTOS:
+            return self.estado == "tarifa" and self.numerada and self._continuar()
         if texto == "Continuar":
+            if self.estado == "tarifa" and self.numerada:
+                return False                    # en una numerada no hay Continuar en este paso
             return self._continuar()
         if texto == "no gracias" and self.estado == "garantia":
             self.quiere_garantia = False
@@ -85,12 +92,17 @@ class PaginaFalsa:
         if self.estado == "mapa":
             return "Seleccionar sector\n" + "\n".join(self.sectores)
         if self.estado == "tarifa":
+            boton = rt.BOTON_ASIENTOS if self.numerada else "Continuar"
             return (f"Seleccionar tarifa\nEntrada | Etapa 1\n$ 329.000 + $ 51.000\n{n}\n"
-                    "Continuar")
+                    f"{boton}")
         if self.estado == "error":
+            if self.numerada:
+                return "Seleccionar tarifa\nLo sentimos!\nNo hay asientos libres para esta sección.\nelige otra sección."
             return f"Seleccionar tarifa\n{TEXTO_ERROR}\nLimpiar selección\nContinuar"
         if self.estado == "lista":
-            return "Seleccionar tarifa\n" + "VIP\nCambiar tarifa\n" * n + "Continuar"
+            # En las numeradas el contador de la reserva corre desde que se asignan los asientos.
+            reloj = "La reserva expira en 02:54\n" if self.numerada else ""
+            return reloj + "Seleccionar tarifa\n" + "VIP\nCambiar tarifa\n" * n + "Continuar"
         if self.estado == "garantia":
             return ("¿Quieres recuperar el total de tu compra?\nno gracias\n$ 0\nContinuar\n" + resumen)
         if self.estado == "entrega":
@@ -142,6 +154,23 @@ class TestCantidad(unittest.TestCase):
         self.assertEqual(p.intentos, [4, 3, 2])      # 4 y 3 rechazadas, 2 aceptada
         self.assertEqual(p.limpiezas, 2)             # se deshace la seleccion tras cada rechazo
 
+    def test_deja_registro_de_cada_intento_con_el_texto_real_del_rechazo(self):
+        # El aviso real de "no hay boletas" nunca se ha visto: debe quedar en el registro.
+        r = reservar(PaginaFalsa(cupo=2))
+        self.assertEqual(len(r.intentos), 3)
+        self.assertTrue(r.intentos[0].startswith("4: rechazada ["))
+        self.assertIn(TEXTO_ERROR, r.intentos[0])
+        self.assertTrue(r.intentos[1].startswith("3: rechazada ["))
+        self.assertEqual(r.intentos[2], "2: ok")
+
+    def test_a_la_primera_un_solo_intento(self):
+        self.assertEqual(reservar(PaginaFalsa(cupo=4)).intentos, ["4: ok"])
+
+    def test_sin_boletas_registra_todos_los_intentos_rechazados(self):
+        r = reservar(PaginaFalsa(cupo=0))
+        self.assertEqual([i.split(":")[0] for i in r.intentos], ["4", "3", "2", "1"])
+        self.assertTrue(all("rechazada" in i for i in r.intentos))
+
     def test_queda_una_sola_boleta(self):
         p = PaginaFalsa(cupo=1)
         r = reservar(p)
@@ -169,6 +198,14 @@ class TestCantidad(unittest.TestCase):
         self.assertEqual((r.ok, r.cantidad, r.pedidas), (True, 2, 4))
         self.assertEqual(p.intentos, [2])
 
+    def test_selector_frenado_deja_el_aviso_real_en_los_intentos(self):
+        # Iron Maiden sector 107 (real): pedir 4, el "+" se frena en 2 con "Limite de cantidad".
+        r = reservar(PaginaFalsa(cupo=2, tope=2))
+        self.assertTrue(r.ok)
+        self.assertEqual(r.cantidad, 2)
+        self.assertTrue(r.intentos[0].startswith("4: selector frenado en 2 [Límite de cantidad"))
+        self.assertEqual(r.intentos[-1], "2: ok")
+
     def test_selector_frenado_y_ademas_rechazado_baja_desde_lo_marcado(self):
         # El "+" frena en 2 y aun asi sobra: el siguiente intento es 1, no otra vez 2 (ni 3).
         p = PaginaFalsa(cupo=1, tope=2)
@@ -182,6 +219,43 @@ class TestCantidad(unittest.TestCase):
         self.assertFalse(r.ok)
         self.assertIn("no pasa de 0", r.detalle)
         self.assertEqual(p.intentos, [])
+
+
+class TestNumeradas(unittest.TestCase):
+    """Localidad numerada (Iron Maiden): Buscar mejores asientos, contador temprano, otro error."""
+
+    PERMITIDOS = {"Continuar", "no gracias", rt.ENTREGA_OBLIGATORIA, "Confirmar reserva", rt.BOTON_ASIENTOS}
+
+    def test_busca_los_asientos_y_sigue_hasta_el_pago(self):
+        p = PaginaFalsa(cupo=4, numerada=True)
+        r = reservar(p)
+        self.assertTrue(r.ok)
+        self.assertEqual(r.cantidad, 4)
+        self.assertIn(rt.BOTON_ASIENTOS, p.clics)
+        self.assertLessEqual(set(p.clics), self.PERMITIDOS)
+
+    def test_el_contador_temprano_no_se_confunde_con_el_pago(self):
+        # Tras asignar asientos ya dice "La reserva expira en": aun faltan garantia, entrega y confirmar.
+        p = PaginaFalsa(cupo=4, numerada=True)
+        r = reservar(p)
+        self.assertEqual(p.estado, "pago")
+        self.assertIn("no gracias", p.clics)
+        self.assertIn("Confirmar reserva", p.clics)
+        self.assertTrue(r.ok)
+
+    def test_sin_asientos_para_4_baja_hasta_los_que_haya(self):
+        p = PaginaFalsa(cupo=2, numerada=True)
+        r = reservar(p)
+        self.assertTrue(r.ok)
+        self.assertEqual(r.cantidad, 2)
+        self.assertEqual(p.intentos, [4, 3, 2])
+        self.assertIn("No hay asientos libres", r.intentos[0])
+
+    def test_sin_asientos_en_la_seccion_falla_con_el_motivo(self):
+        r = reservar(PaginaFalsa(cupo=0, numerada=True))
+        self.assertFalse(r.ok)
+        self.assertFalse(r.retenidas)
+        self.assertTrue(all("No hay asientos libres" in i for i in r.intentos))
 
 
 class TestSectores(unittest.TestCase):
@@ -435,6 +509,96 @@ class TestAbrirMapaReal(unittest.TestCase):
         r = rt.reservar(self.pagina_con(driver), [SECTOR])
         self.assertFalse(r.conservar_pestana)
 
+    def test_el_aviso_de_limite_detiene_el_plus_sin_clics_de_mas(self):
+        # Texto real de la pagina con el "+" ya frenado en 2.
+        NL = chr(92) + "n"
+        texto = NL.join(["Seleccionar tarifa", "Entrada", "$ 700.000 + $ 142.000", "2", "Límite de cantidad",
+                         "Has seleccionado el máximo disponible para esta tarifa", "Continuar"]) 
+        texto = texto.replace(NL, chr(10))
+        driver = DriverTexto(texto)
+        p = self.pagina_con(driver)
+        with mock.patch.object(rt, "ESPERA_RESPUESTA", 0):
+            self.assertEqual(p.fijar_cantidad(4), 2)
+        # No insiste con el "+"; su unico clic es el "Continuar" del dialogo, que lo cierra.
+        self.assertNotIn(rt.JS_SUMAR, driver.scripts)
+        self.assertIn(rt.JS_CERRAR_AVISO, driver.scripts)
+        self.assertEqual(driver.elemento.clics, 1)
+        self.assertIn("Límite de cantidad", p.aviso_limite)
+
+    def test_evento_sin_ver_entradas_ya_muestra_los_sectores(self):
+        # Iron Maiden: la pagina abre directamente en "Seleccionar sector".
+        driver = DriverTexto(chr(10).join(["Mis entradas", "Cerrar sesión", "Seleccionar sector", "Front Field Sur"]))
+        p = self.pagina_con(driver)
+        self.assertTrue(p.abrir_mapa())
+        self.assertNotIn("Ver entradas", [a for a in driver.scripts if a == "Ver entradas"])
+
+    def pagina_con_secciones(self, filas, claves=()):
+        """Driver cuyo paso de seccion devuelve `filas`; devuelve (pagina, elementos por nombre)."""
+        driver_ref = []
+
+        class Fila(Elemento):
+            def click(self):
+                super().click()
+                driver_ref[0].texto = "Seleccionar tarifa"     # como la pagina: avanza al elegir
+
+        elementos = {nombre: Fila() for nombre, _ in filas}
+
+        class Secciones(DriverTexto):
+            def execute_script(self, script, *args):
+                if script == rt.JS_ELEGIR_SECTOR:
+                    self.texto = "Seleccionar sección"
+                    return self.elemento
+                if script == rt.JS_SECCIONES:
+                    return [{"el": elementos[n], "texto": n, "libre": libre} for n, libre in filas]
+                return super().execute_script(script, *args)
+        driver = Secciones("Seleccionar sección")
+        driver_ref.append(driver)
+        pagina = self.pagina_con(driver)
+        pagina.claves_seccion = list(claves)
+        return pagina, elementos
+
+    def test_sector_numerado_sin_claves_elige_la_primera_seccion_libre(self):
+        p, el = self.pagina_con_secciones([("101 (+12)", False), ("103 (+12)", True), ("105 (+12)", True)])
+        self.assertTrue(p.elegir_sector("101 - 103 - 105 - 107"))
+        self.assertEqual([el[n].clics for n in el], [0, 1, 0])
+
+    def test_la_palabra_107_elige_la_seccion_107_y_no_la_primera_libre(self):
+        filas = [("101 (+12)", True), ("103 (+12)", True), ("105 (+12)", True), ("107 (+12)", True)]
+        p, el = self.pagina_con_secciones(filas, claves=["back", "107"])
+        self.assertTrue(p.elegir_sector("101 - 103 - 105 - 107"))
+        self.assertEqual([el[n].clics for n in el], [0, 0, 0, 1])
+
+    def test_si_la_seccion_pedida_esta_agotada_no_reserva_otra(self):
+        filas = [("101 (+12)", True), ("107 (+12)", False)]
+        p, el = self.pagina_con_secciones(filas, claves=["107"])
+        self.assertFalse(p.elegir_sector("101 - 103 - 105 - 107"))
+        self.assertEqual([el[n].clics for n in el], [0, 0])      # no cae en la 101
+
+    def test_palabra_que_no_nombra_ninguna_seccion_no_restringe(self):
+        # "back" es de otro sector: aqui vale la primera libre.
+        p, el = self.pagina_con_secciones([("111 (+18)", True), ("113 (+18)", True)], claves=["back"])
+        self.assertTrue(p.elegir_sector("111 - 113 - 115"))
+        self.assertEqual([el[n].clics for n in el], [1, 0])
+
+    def test_todas_las_secciones_agotadas(self):
+        p, el = self.pagina_con_secciones([("101 (+12)", False), ("103 (+12)", False)])
+        self.assertFalse(p.elegir_sector("101 - 103 - 105 - 107"))
+
+    def test_tras_no_hay_asientos_libres_se_vuelve_con_elige_otra_seccion(self):
+        textos = []
+
+        class Error(DriverTexto):
+            def execute_script(self, script, *args):
+                if script == rt.JS_CLIC_TEXTO:
+                    textos.append(args[0])
+                    if args[0] == "elige otra sección":
+                        self.texto = "Seleccionar sector"
+                    return self.elemento
+                return super().execute_script(script, *args)
+        driver = Error("Lo sentimos! No hay asientos libres para esta sección. elige otra sección.")
+        self.assertTrue(self.pagina_con(driver).limpiar())
+        self.assertEqual(textos[0], "elige otra sección")      # el primero que se prueba
+
     def test_texto_sin_elemento_no_hace_clic(self):
         driver = DriverTexto()
         driver.elemento = None
@@ -480,6 +644,30 @@ class TestMensaje(unittest.TestCase):
     def test_reserva_parcial_lo_dice(self):
         m = rt.mensaje(rt.Reserva(True, SECTOR, 2, 4, "$ 767.000", "04:50"), "Evento", "https://x", "10:00:00")
         self.assertIn("Solo se pudieron reservar 2 de 4", m)
+
+    def test_resumen_de_varias_reservas(self):
+        r1 = rt.Reserva(True, "VIP (GRAMILLA)", 4, 4, "$ 4.324.000", "04:59")
+        r2 = rt.Reserva(True, "NORTE ALTA", 2, 4, "$ 792.000", "04:51")
+        r3 = rt.Reserva(False, "SUR ALTA", detalle="sin boletas")
+        m = rt.mensaje_resumen([r1, r2, r3], "BTS", "https://x", "10:00:00")
+        for parte in ("2 RESERVA(S) LISTA(S)", "4 x VIP (GRAMILLA)", "2 x NORTE ALTA", "$ 792.000", "04:51",
+                      "1 no se pudieron", "vencen solas"):
+            self.assertIn(parte, m)
+        self.assertNotIn("SUR ALTA", m.split("(1 no se pudieron")[0])
+
+    def test_resumen_sin_ninguna_lista(self):
+        m = rt.mensaje_resumen([rt.Reserva(False, "A"), rt.Reserva(False, "B")], "BTS", "https://x", "10:00:00")
+        self.assertIn("NINGUNA RESERVA LISTA", m)
+
+    def test_mensaje_parcial_resume_la_bajada(self):
+        r = rt.Reserva(True, SECTOR, 2, 4, "$ 767.000", "04:50",
+                       intentos=["4: rechazada [x]", "3: rechazada [x]", "2: ok"])
+        self.assertIn("Intentos: 4 no, 3 no, 2 si", rt.mensaje(r, "E", "https://x", "10:00:00"))
+
+    def test_mensaje_de_fallo_resume_los_intentos(self):
+        r = rt.Reserva(False, SECTOR, detalle="no hay boletas ni para 1",
+                       intentos=["4: rechazada [x]", "3: rechazada [x]", "2: rechazada [x]", "1: rechazada [x]"])
+        self.assertIn("Intentos: 4 no, 3 no, 2 no, 1 no", rt.mensaje(r, "E", "https://x", "10:00:00"))
 
     def test_fallo_limpio_y_fallo_con_boletas_retenidas(self):
         limpio = rt.mensaje(rt.Reserva(False, SECTOR, detalle="no hay boletas ni para 1"), "E", "https://x", "10:00:00")
