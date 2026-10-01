@@ -2,6 +2,7 @@
 Integracion de la reserva en el monitor: solo URLs activadas, solo sectores
 nuevos, pestana aparte y un aviso de Telegram con el resultado.
 """
+import types
 from unittest import mock
 
 import reserva_ticketmaster as rt
@@ -51,17 +52,21 @@ class Base(CasoMonitor):
         self.m._ULTIMA_RESERVA.clear()
         self.m._NAVEGADOR_RESERVA.clear()
         self.llamadas = []
+        self.paginas = []
         self.resultado = rt.Reserva(True, SECTOR, 4, 4, "$ 1.527.000", "04:52")
         self.lanza = None
+        self.cola = []          # resultados de las proximas llamadas, en orden
+        self.tarda = 0          # segundos del reloj simulado que consume cada reserva
 
         def reservar(pagina, sectores, maximo=4, minimo=1, reloj=None):
             self.llamadas.append((list(sectores), maximo))
+            self.reloj.ahora += self.tarda
             if self.lanza:
                 raise self.lanza
-            return self.resultado
+            return self.cola.pop(0) if self.cola else self.resultado
 
         patches = [mock.patch.object(rt, "reservar", reservar),
-                   mock.patch.object(rt, "PaginaSelenium", lambda driver, url, cargar: object())]
+                   mock.patch.object(rt, "PaginaSelenium", lambda driver, url, cargar: self.paginas.append(types.SimpleNamespace()) or self.paginas[-1])]
         for p in patches:
             p.start()
             self.addCleanup(p.stop)
@@ -101,7 +106,7 @@ class TestIntentarReserva(Base):
         self.lanza = RuntimeError("boom")
         d = DriverFalso()
         r = self.m.intentar_reserva(d, URL, [SECTOR], "E")
-        self.assertFalse(r.ok)
+        self.assertFalse(r[0].ok)
         self.assertEqual(d.actual, "monitor")
         self.assertIn("NO PUDE RESERVAR", self.enviados[0])
         self.assertIn("boom", self.enviados[0])
@@ -153,6 +158,17 @@ class TestReservaPorSector(Base):
         self.assertEqual((self.llamadas, d.eventos, self.enviados), ([], [], []))
         self.assertIn("ningun sector nuevo coincide", self.leer_registro())
 
+    def test_el_orden_de_las_palabras_es_la_prioridad_no_el_del_catalogo(self):
+        self.m.RESERVAR_TICKETMASTER = {BTS: {"maximo": 4, "sectores": ["gramilla", "norte", "sur"]}}
+        catalogo = ["SUR ALTA", "NORTE ALTA", "VIP (GRAMILLA)", "OCCIDENTAL BAJA"]
+        self.m.intentar_reserva(DriverFalso(), BTS, catalogo, "BTS")
+        self.assertEqual(self.llamadas, [(["VIP (GRAMILLA)", "NORTE ALTA", "SUR ALTA"], 4)])
+
+    def test_a_igual_prioridad_se_conserva_el_orden_del_catalogo(self):
+        self.m.RESERVAR_TICKETMASTER = {BTS: {"maximo": 4, "sectores": ["norte"]}}
+        self.m.intentar_reserva(DriverFalso(), BTS, ["NORTE BAJA", "NORTE ALTA"], "BTS")
+        self.assertEqual(self.llamadas, [(["NORTE BAJA", "NORTE ALTA"], 4)])
+
     def test_el_maximo_sale_del_dict(self):
         self.m.RESERVAR_TICKETMASTER = {BTS: {"maximo": 2, "sectores": ["GRAMILLA"]}}
         self.m.intentar_reserva(DriverFalso(), BTS, ["VIP (GRAMILLA)"], "BTS")
@@ -162,6 +178,11 @@ class TestReservaPorSector(Base):
         self.m.RESERVAR_TICKETMASTER = {BTS: {"maximo": 4}}
         self.m.intentar_reserva(DriverFalso(), BTS, ["A", "B"], "BTS")
         self.assertEqual(self.llamadas, [(["A", "B"], 4)])
+
+    def test_las_palabras_llegan_a_la_pagina_para_elegir_la_seccion(self):
+        self.m.RESERVAR_TICKETMASTER = {BTS: {"maximo": 4, "sectores": ["back", "107"]}}
+        self.m.intentar_reserva(DriverFalso(), BTS, ["Back Field", "101 - 103 - 105 - 107"], "E")
+        self.assertEqual(self.paginas[-1].claves_seccion, ["back", "107"])
 
     def test_el_nombre_viene_del_catalogo_el_filtro_de_avisos_no_interviene(self):
         # No hay FILTROS_LOCALIDADES para BTS: se avisa de todo y la reserva elige sola.
@@ -175,6 +196,115 @@ class TestReservaPorSector(Base):
         self.assertNotIn(("cerrada", "reserva"), d.eventos)
         self.assertEqual(d.actual, "monitor")
         self.assertIn("NO PUDE RESERVAR", self.enviados[0])
+
+
+def listo(sector, cantidad=4):
+    return rt.Reserva(True, sector, cantidad, 4, "$ 1.527.000", "04:59")
+
+
+def fallo(sector):
+    return rt.Reserva(False, sector, detalle="no hay boletas ni para 1")
+
+
+class TestVariasReservas(Base):
+    """max_reservas > 1: una localidad por pestana, hasta el tope o hasta agotar la lista."""
+
+    def setUp(self):
+        super().setUp()
+        self.config(8)
+
+    def config(self, tope, sectores=("gramilla", "norte", "sur", "oriental")):
+        self.m.RESERVAR_TICKETMASTER = {BTS: {"maximo": 4, "sectores": list(sectores), "max_reservas": tope}}
+
+    def lanzar(self, catalogo):
+        d = DriverFalso()
+        self.m.intentar_reserva(d, BTS, catalogo, "BTS")
+        return d
+
+    def test_una_pestana_y_una_llamada_por_localidad_en_orden_de_prioridad(self):
+        d = self.lanzar(["SUR ALTA", "NORTE ALTA", "VIP (GRAMILLA)"])
+        self.assertEqual([c[0] for c in self.llamadas],
+                         [["VIP (GRAMILLA)"], ["NORTE ALTA"], ["SUR ALTA"]])
+        self.assertEqual(sum(1 for e in d.eventos if e[0] == "nueva"), 3)
+        self.assertEqual(d.actual, "monitor")
+
+    def test_se_detiene_al_llegar_al_tope(self):
+        self.config(2)
+        self.lanzar(["VIP (GRAMILLA)", "NORTE ALTA", "SUR ALTA", "ORIENTAL BAJA"])
+        self.assertEqual(len(self.llamadas), 2)
+
+    def test_si_hay_menos_que_el_tope_reserva_las_que_haya(self):
+        self.lanzar(["VIP (GRAMILLA)", "NORTE ALTA"])
+        self.assertEqual(len(self.llamadas), 2)
+        self.assertEqual(sum("RESERVA LISTA" in e for e in self.enviados), 2)
+
+    def test_una_que_falla_no_cuenta_y_se_sigue_con_la_siguiente(self):
+        self.config(2)
+        self.cola = [fallo("VIP (GRAMILLA)"), listo("NORTE ALTA"), listo("SUR ALTA")]
+        d = self.lanzar(["VIP (GRAMILLA)", "NORTE ALTA", "SUR ALTA", "ORIENTAL BAJA"])
+        self.assertEqual([c[0][0] for c in self.llamadas], ["VIP (GRAMILLA)", "NORTE ALTA", "SUR ALTA"])
+        self.assertIn(("cerrada", "reserva"), d.eventos)          # la fallida cierra su pestana
+
+    def test_las_exitosas_dejan_su_pestana_abierta(self):
+        d = self.lanzar(["VIP (GRAMILLA)", "NORTE ALTA"])
+        self.assertEqual([e for e in d.eventos if e[0] == "cerrada"], [])
+
+    def test_un_mensaje_por_reserva_y_un_resumen_final(self):
+        self.cola = [listo("VIP (GRAMILLA)"), listo("NORTE ALTA"), listo("SUR ALTA")]
+        self.lanzar(["VIP (GRAMILLA)", "NORTE ALTA", "SUR ALTA"])
+        self.assertEqual(len(self.enviados), 4)
+        resumen = self.enviados[-1]
+        self.assertIn("3 RESERVA(S) LISTA(S)", resumen)
+        for sector in ("VIP (GRAMILLA)", "NORTE ALTA", "SUR ALTA"):
+            self.assertIn(sector, resumen)
+        self.assertIn("vencen solas", resumen)
+
+    def test_con_una_sola_localidad_no_hay_resumen(self):
+        self.lanzar(["VIP (GRAMILLA)"])
+        self.assertEqual(len(self.enviados), 1)
+
+    def test_no_repite_una_localidad_ya_reservada_pero_si_reserva_las_nuevas(self):
+        self.lanzar(["VIP (GRAMILLA)", "NORTE ALTA"])
+        self.llamadas.clear()
+        self.lanzar(["VIP (GRAMILLA)", "NORTE ALTA", "SUR ALTA"])         # aparece una nueva
+        self.assertEqual([c[0][0] for c in self.llamadas], ["SUR ALTA"])
+        self.reloj.ahora += self.m.INTERVALO_RECORDATORIO + 1
+        self.llamadas.clear()
+        self.lanzar(["VIP (GRAMILLA)"])                                    # pasado el enfriamiento
+        self.assertEqual(len(self.llamadas), 1)
+
+    def test_un_fallo_limpio_si_puede_reintentarse(self):
+        self.cola = [fallo("VIP (GRAMILLA)")]
+        self.lanzar(["VIP (GRAMILLA)"])
+        self.llamadas.clear()
+        self.lanzar(["VIP (GRAMILLA)"])
+        self.assertEqual(len(self.llamadas), 1)
+
+    def test_tope_de_tiempo_total(self):
+        # Cada reserva tarda 200 s simulados y el tope es 300: tras la segunda ya no empieza otra.
+        self.tarda = 200
+        self.lanzar(["VIP (GRAMILLA)", "NORTE ALTA", "SUR ALTA", "ORIENTAL BAJA"])
+        self.assertEqual(len(self.llamadas), 2)
+        self.assertIn("se acabo el tiempo", self.leer_registro())
+
+    def test_un_error_inesperado_en_una_no_impide_las_demas(self):
+        self.lanza = RuntimeError("boom")
+        d = self.lanzar(["VIP (GRAMILLA)", "NORTE ALTA"])
+        self.assertEqual(len(self.llamadas), 2)
+        self.assertEqual(d.actual, "monitor")
+
+    def test_sin_max_reservas_sigue_siendo_una_sola_llamada_con_toda_la_lista(self):
+        self.m.RESERVAR_TICKETMASTER = {BTS: {"maximo": 4, "sectores": ["gramilla", "norte"]}}
+        self.lanzar(["NORTE ALTA", "VIP (GRAMILLA)"])
+        self.assertEqual(self.llamadas, [(["VIP (GRAMILLA)", "NORTE ALTA"], 4)])
+
+    def test_puerto_cerrado_en_modo_varias_avisa_una_vez(self):
+        self.m.RESERVA_PUERTO_DEPURACION = 9223
+        self.m.puerto_depuracion_activo = lambda puerto=None: False
+        self.lanzar(["VIP (GRAMILLA)", "NORTE ALTA"])
+        self.assertEqual(self.llamadas, [])
+        self.assertEqual(len(self.enviados), 1)
+        self.assertIn("iniciar_comet_debug.bat", self.enviados[0])
 
 
 class TestNavegadorDeReserva(Base):
@@ -197,7 +327,7 @@ class TestNavegadorDeReserva(Base):
         self.m.puerto_depuracion_activo = lambda puerto=None: False
         d = DriverFalso()
         r = self.m.intentar_reserva(d, URL, [SECTOR], "E")
-        self.assertFalse(r.ok)
+        self.assertFalse(r[0].ok)
         self.assertEqual(d.eventos, [])
         self.assertEqual(self.llamadas, [])
         self.assertIn("iniciar_comet_debug.bat", self.enviados[0])
@@ -207,7 +337,7 @@ class TestNavegadorDeReserva(Base):
         self.m.puerto_depuracion_activo = lambda puerto=None: True
         with mock.patch.object(self.m.urllib.request, "urlopen", side_effect=OSError("sin red")):
             r = self.m.intentar_reserva(DriverFalso(), URL, [SECTOR], "E")
-        self.assertFalse(r.ok)
+        self.assertFalse(r[0].ok)
         self.assertIn("no pude conectar", self.enviados[0])
 
     def test_sin_puerto_configurado_usa_el_driver_del_monitor(self):
@@ -267,6 +397,30 @@ class TestEnElBucle(Base):
         self.correr(1)
         self.assertIn("DISPONIBILIDAD DETECTADA", self.enviados[0])
         self.assertIn("RESERVA LISTA", self.enviados[1])
+
+    def test_la_reserva_no_depende_del_filtro_de_avisos(self):
+        # El filtro de avisos solo deja pasar "otra cosa": no avisa del sector, pero se reserva igual.
+        self.m.FILTROS_LOCALIDADES = {URL: ["otra cosa"]}
+        self.correr(3)
+        self.assertEqual(self.llamadas, [([SECTOR], 4)])
+        # sin aviso de ESTA url (la otra url del bucle no tiene filtro y si avisa)
+        self.assertFalse(any("DISPONIBILIDAD DETECTADA" in e and URL in e for e in self.enviados))
+        self.assertTrue(any("RESERVA LISTA" in e for e in self.enviados))
+
+    def test_el_filtro_de_avisos_no_se_toca_y_sigue_avisando_lo_suyo(self):
+        self.m.FILTROS_LOCALIDADES = {URL: ["VIP"]}
+        self.correr(1)
+        self.assertTrue(any("DISPONIBILIDAD DETECTADA" in e for e in self.enviados))
+        self.assertEqual(len(self.llamadas), 1)
+
+    def test_la_reserva_guarda_su_propio_estado_sin_pisar_el_de_avisos(self):
+        self.m.FILTROS_LOCALIDADES = {URL: ["VIP"]}
+        self.correr(1)
+        import json
+        with open(self.m.ARCHIVO_ESTADO, encoding="utf-8") as f:
+            claves = list(json.load(f))
+        self.assertTrue(any(k.startswith(URL + "||") for k in claves))                      # avisos
+        self.assertTrue(any(k.startswith(URL + self.m.CLAVE_RESERVA + "||") for k in claves))  # reserva
 
     def test_sin_url_activada_el_monitor_solo_observa(self):
         self.m.RESERVAR_TICKETMASTER = {}

@@ -1681,12 +1681,18 @@ PAUSA_TRAS_DISPONIBILIDAD = 5  # Segundos
 # Reserva automatica en Ticketmaster. Solo las URLs listadas aqui reservan; el resto
 # solo avisa. La clave debe coincidir caracter por caracter con URLS_A_MONITOREAR.
 # El valor es el maximo de boletas a pedir (tope de la plataforma: 4), o un dict
-#     {"maximo": 4, "sectores": ["GRAMILLA"]}
-# para reservar SOLO los sectores cuyo nombre contenga alguna de esas palabras. Es
-# independiente de FILTROS_LOCALIDADES (que decide de que se AVISA): asi se sigue
+#     {"maximo": 4, "sectores": ["GRAMILLA", "norte"], "max_reservas": 8}
+# para reservar SOLO los sectores cuyo nombre contenga alguna de esas palabras.
+# "max_reservas" (1 por defecto) es cuantas localidades distintas reservar a la vez: cada
+# una queda en su propia pestana con su contador y usted decide cual pagar; las demas
+# vencen solas. Con menos sectores disponibles que max_reservas, reserva los que haya. Es
+# independiente de FILTROS_LOCALIDADES (que decide de que se AVISA; la reserva mira todos
+# los sectores disponibles, no solo los del filtro de avisos): asi se sigue
 # avisando de todo y se reserva solo lo que la reserva sabe hacer. Importante: el
-# bot solo maneja localidades de ENTRADA GENERAL (se sube la cantidad con el "+");
-# las de silleteria numerada piden elegir el asiento en el mapa y no funcionan.
+# bot maneja entrada general (se sube la cantidad con el "+") y numeradas (busca los
+# mejores asientos). EL ORDEN DE LAS PALABRAS ES LA PRIORIDAD: si aparecen varios sectores
+# a la vez se prueba primero el que casa con la primera palabra, y se reserva UNO por
+# deteccion (el primero que se consiga).
 # Cuando un sector que cumple aparece NUEVO, el bot abre otra pestana, reserva hasta
 # la pantalla de pago y avisa por Telegram: el pago lo hace siempre el usuario.
 # Vacio = el monitor se comporta como siempre (solo observa y notifica).
@@ -1699,15 +1705,25 @@ PAUSA_TRAS_DISPONIBILIDAD = 5  # Segundos
 RESERVA_PUERTO_DEPURACION = 9223
 
 RESERVAR_TICKETMASTER = {
+
+    "https://www.ticketmaster.co/event/calvin-harris-venta-general":
+        {"maximo": 6, "max_reservas": 8},
+
     "https://www.ticketmaster.co/event/carlos-vives-bucaramanga-venta-general": 4,
+
+    # IRON MAIDEN: Back Field es de entrada general; "107" nombra la SECCION 107 del sector
+    # numerado "101 - 103 - 105 - 107" (el bot reserva esa seccion, no la primera libre).
+    # Independiente de FILTROS_LOCALIDADES: aqui se decide que RESERVAR, alli de que AVISAR.
+    "https://www.ticketmaster.co/event/iron-maiden-venta-general":
+        {"maximo": 4, "sectores": ["back", "107", "front field sur", "111"]},
 
     # BTS: solo VIP (GRAMILLA), la unica de entrada general; las demas son numeradas.
     # Se casa por la palabra "GRAMILLA", unica entre sus sectores, por si cambian los parentesis.
     # Army Membership no entra: pide el numero de membresia, lo pone el usuario.
     "https://www.ticketmaster.co/event/bts-world-tour-venta-general-viernes-2-octubre":
-        {"maximo": 4, "sectores": ["GRAMILLA"]},
+        {"maximo": 4, "sectores": ["GRAMILLA"], "max_reservas": 8},
     "https://www.ticketmaster.co/event/bts-world-tour-venta-general-sabado-3-octubre":
-        {"maximo": 4, "sectores": ["GRAMILLA"]},
+        {"maximo": 4, "sectores": ["GRAMILLA"], "max_reservas": 8},
 }
 
 # Un bloqueo persiste; avisar en cada ronda solo cambiaria un problema de
@@ -1877,7 +1893,14 @@ def deshacer_avisos(estado, url, nuevas, recordatorios):
             registro["ultimo_aviso"] = 0
 
 
-_ULTIMA_RESERVA = {}  # url -> hora de la ultima reserva (en memoria)
+_ULTIMA_RESERVA = {}  # url -> hora de la ultima reserva (modo de una sola reserva)
+# Sufijo con el que la reserva guarda SU estado de sectores vistos en estado_notificaciones.json,
+# separado del de los avisos para que los dos filtros no se pisen.
+CLAVE_RESERVA = "@reserva"
+_RESERVADOS = {}  # (url, sector) -> hora de su ultima reserva (modo de varias reservas)
+# Tope de tiempo para TODAS las reservas de una deteccion: el monitor no revisa nada mas
+# mientras reserva, y cada reserva retiene las boletas solo unos 5 minutos.
+TIEMPO_MAXIMO_RESERVAS = 300  # Segundos
 _NAVEGADOR_RESERVA = []  # driver ya conectado al navegador de reserva (0 o 1)
 
 
@@ -1939,51 +1962,21 @@ def navegador_reserva(driver_monitor):
     return nuevo, None
 
 
-def intentar_reserva(driver, url, sectores, nombre_evento):
+def _reserva_en_pestana(navegador, url, sectores, maximo, palabras):
     """
-    Reserva en una pestana nueva y avisa por Telegram del resultado.
+    Una reserva en una pestana nueva del navegador de reserva; devuelve la Reserva.
 
-    La pestana del monitor no se toca: el monitor sigue en ella despues. Si se
-    llego al pago, quedaron boletas retenidas o el navegador esta en una fila
-    de Queue-it, la pestana nueva se deja abierta para que el usuario termine
-    (cerrarla perderia el puesto en la fila); si fallo limpio, se cierra.
-
-    Nunca lanza: un fallo de la reserva no puede tumbar el bucle de monitoreo.
+    La pestana del monitor no se toca. Si se llego al pago, quedaron boletas retenidas o
+    el navegador esta en una fila de Queue-it, la pestana nueva se deja abierta para que
+    el usuario termine (cerrarla perderia la reserva o el puesto en la fila); si fallo
+    limpio, se cierra. Nunca lanza.
     """
-    config = RESERVAR_TICKETMASTER.get(url)
-    maximo = config.get("maximo", 4) if isinstance(config, dict) else config
-    palabras = config.get("sectores") if isinstance(config, dict) else None
-    sectores = [s for s in sectores if MARCADOR_SIN_DETALLE not in s]
-    if palabras:
-        claves = [normalizar_nombre(p) for p in palabras if normalizar_nombre(p)]
-        todos = sectores
-        sectores = [s for s in sectores if any(c in normalizar_nombre(s) for c in claves)]
-        if todos and not sectores:
-            log.info(f"RESERVA: ningun sector nuevo coincide con {palabras}: {todos} | {url}")
-    if not maximo or not sectores:
-        return None
-
-    # Si el aviso de Telegram fallo, el sector vuelve a ser "nuevo" en la ronda
-    # siguiente: sin este freno se reservaria dos veces lo mismo. Solo cuenta si
-    # hubo reserva (o boletas retenidas); un fallo limpio puede reintentarse.
-    if time.time() - _ULTIMA_RESERVA.get(url, 0) < INTERVALO_RECORDATORIO:
-        print("   🎟️ Ya se reservo hace poco en este evento; no se repite")
-        return None
-
-    print(f"   🎟️ Reservando {maximo} boleta(s) en una pestaña nueva...")
-    log.warning(f"RESERVA: intentando {sectores} (max {maximo}) | {url}")
-    navegador, motivo = navegador_reserva(driver)
-    if navegador is None:
-        reserva = reserva_ticketmaster.Reserva(False, sectores[0], detalle=motivo)
-        log.warning(f"RESERVA FALLO: {motivo} | {url}")
-        enviar_notificacion(reserva_ticketmaster.mensaje(reserva, nombre_evento, url, time.strftime('%H:%M:%S')))
-        return reserva
-
     original = navegador.current_window_handle
     cerrar = False
     try:
         navegador.switch_to.new_window("tab")
         pagina = reserva_ticketmaster.PaginaSelenium(navegador, url, navegar)
+        pagina.claves_seccion = palabras or []
         reserva = reserva_ticketmaster.reservar(pagina, sectores, maximo=maximo)
         cerrar = not reserva.ok and not reserva.retenidas and not reserva.conservar_pestana
     except Exception as e:
@@ -1996,14 +1989,113 @@ def intentar_reserva(driver, url, sectores, nombre_evento):
             navegador.switch_to.window(original)
         except WebDriverException:
             log.exception("RESERVA: no se pudo volver a la pestaña original")
+    return reserva
 
-    if reserva.ok or reserva.retenidas:
-        _ULTIMA_RESERVA[url] = time.time()
+
+def _avisar_reserva(reserva, nombre_evento, url):
     resultado = "OK" if reserva.ok else "FALLO"
     log.warning(f"RESERVA {resultado}: {reserva} | {url}")
     print(f"   🎟️ Reserva {resultado}: {reserva.detalle or str(reserva.cantidad) + ' boleta(s)'}")
     enviar_notificacion(reserva_ticketmaster.mensaje(reserva, nombre_evento, url, time.strftime('%H:%M:%S')))
-    return reserva
+
+
+def _reservar_varias(navegador, url, sectores, maximo, max_reservas, palabras, nombre_evento):
+    """
+    Una reserva por localidad, cada una en su pestana, hasta max_reservas.
+
+    Ticketmaster deja tener varias reservas vivas a la vez en la misma cuenta (verificado a
+    mano con 3 pestanas): el usuario decide despues cual pagar y las demas vencen solas.
+    Se sigue el orden de prioridad de `sectores`; las que fallan no cuentan y se pasa a la
+    siguiente; si hay menos que max_reservas, se reservan las que haya.
+    """
+    limite = time.time() + TIEMPO_MAXIMO_RESERVAS
+    resultados = []
+    exitos = 0
+    for sector in sectores:
+        if exitos >= max_reservas:
+            break
+        if time.time() > limite:
+            log.warning(f"RESERVA: se acabo el tiempo ({TIEMPO_MAXIMO_RESERVAS}s) con {exitos} reserva(s) | {url}")
+            break
+        # Una localidad ya reservada hace poco no se repite (p. ej. si el aviso de Telegram
+        # fallo y el sector vuelve a contarse como nuevo), pero las demas si se reservan.
+        if time.time() - _RESERVADOS.get((url, sector), 0) < INTERVALO_RECORDATORIO:
+            print(f"   🎟️ {sector}: ya reservada hace poco; no se repite")
+            continue
+
+        print(f"   🎟️ Reservando {maximo} boleta(s) de {sector} ({exitos + 1}/{max_reservas})...")
+        log.warning(f"RESERVA: intentando [{sector}] (max {maximo}, {exitos}/{max_reservas} listas) | {url}")
+        reserva = _reserva_en_pestana(navegador, url, [sector], maximo, palabras)
+        if reserva.ok or reserva.retenidas:
+            _RESERVADOS[(url, sector)] = time.time()
+        exitos += 1 if reserva.ok else 0
+        resultados.append(reserva)
+        _avisar_reserva(reserva, nombre_evento, url)
+
+    if len(resultados) > 1:
+        enviar_notificacion(reserva_ticketmaster.mensaje_resumen(
+            resultados, nombre_evento, url, time.strftime('%H:%M:%S')))
+    return resultados
+
+
+def intentar_reserva(driver, url, sectores, nombre_evento):
+    """
+    Reserva y avisa por Telegram del resultado. Nunca lanza: un fallo de la reserva no
+    puede tumbar el bucle de monitoreo.
+
+    Configuracion en RESERVAR_TICKETMASTER: un numero (maximo de boletas) o un dict con
+    "maximo", "sectores" (palabras; su ORDEN es la prioridad) y "max_reservas".
+      - max_reservas = 1 (por defecto): UNA reserva, en una pestana; prueba los sectores
+        por prioridad y se queda con el primero que consigue.
+      - max_reservas > 1: una reserva por localidad, cada una en su pestana.
+    Devuelve la lista de reservas intentadas, o None si no habia nada que reservar.
+    """
+    config = RESERVAR_TICKETMASTER.get(url)
+    maximo = config.get("maximo", 4) if isinstance(config, dict) else config
+    palabras = config.get("sectores") if isinstance(config, dict) else None
+    max_reservas = config.get("max_reservas", 1) if isinstance(config, dict) else 1
+    sectores = [s for s in sectores if MARCADOR_SIN_DETALLE not in s]
+    if palabras:
+        claves = [normalizar_nombre(p) for p in palabras if normalizar_nombre(p)]
+        todos = sectores
+
+        def prioridad(sector):
+            """Posicion de la primera palabra que lo nombra: la primera de la lista manda."""
+            nombre = normalizar_nombre(sector)
+            return next((i for i, c in enumerate(claves) if c in nombre), len(claves))
+
+        # sorted es estable: a igual prioridad se conserva el orden del catalogo.
+        sectores = sorted((s for s in sectores if prioridad(s) < len(claves)), key=prioridad)
+        if todos and not sectores:
+            log.info(f"RESERVA: ningun sector nuevo coincide con {palabras}: {todos} | {url}")
+    if not maximo or not sectores:
+        return None
+
+    if max_reservas <= 1:
+        # Si el aviso de Telegram fallo, el sector vuelve a ser "nuevo" en la ronda
+        # siguiente: sin este freno se reservaria dos veces lo mismo. Solo cuenta si
+        # hubo reserva (o boletas retenidas); un fallo limpio puede reintentarse.
+        if time.time() - _ULTIMA_RESERVA.get(url, 0) < INTERVALO_RECORDATORIO:
+            print("   🎟️ Ya se reservo hace poco en este evento; no se repite")
+            return None
+
+    log.warning(f"RESERVA: intentando {sectores} (max {maximo}, hasta {max_reservas} reserva(s)) | {url}")
+    navegador, motivo = navegador_reserva(driver)
+    if navegador is None:
+        reserva = reserva_ticketmaster.Reserva(False, sectores[0], detalle=motivo)
+        log.warning(f"RESERVA FALLO: {motivo} | {url}")
+        enviar_notificacion(reserva_ticketmaster.mensaje(reserva, nombre_evento, url, time.strftime('%H:%M:%S')))
+        return [reserva]
+
+    if max_reservas > 1:
+        return _reservar_varias(navegador, url, sectores, maximo, max_reservas, palabras, nombre_evento)
+
+    print(f"   🎟️ Reservando {maximo} boleta(s) en una pestaña nueva...")
+    reserva = _reserva_en_pestana(navegador, url, sectores, maximo, palabras)
+    if reserva.ok or reserva.retenidas:
+        _ULTIMA_RESERVA[url] = time.time()
+    _avisar_reserva(reserva, nombre_evento, url)
+    return [reserva]
 
 
 def monitorear_urls(driver):
@@ -2174,11 +2266,6 @@ def monitorear_urls(driver):
                         # Persistir tras avisar: si el script muere ahora, al reiniciar
                         # no repite los avisos ya enviados (ni da por enviados los fallidos).
                         guardar_estado(estado)
-                        # La reserva va DESPUES del aviso (sale en ~1 s) y solo ante
-                        # sectores nuevos: un recordatorio no vuelve a reservar.
-                        if nuevas and es_url_ticketmaster(url_final):
-                            intentar_reserva(driver, url_final, nuevas, nombre_evento)
-
                         print()
                         if enviado:
                             print("✅ Notificación enviada. Continuando monitoreo...")
@@ -2195,6 +2282,18 @@ def monitorear_urls(driver):
                     elif disponibles and url_final in FILTROS_LOCALIDADES:
                         # Hay disponibles pero no coinciden con el filtro
                         print(f"   ℹ️ Disponibles detectados pero NO coinciden con filtro")
+
+                    # Reserva (Ticketmaster, solo URLs de RESERVAR_TICKETMASTER). Es INDEPENDIENTE
+                    # de FILTROS_LOCALIDADES: decide sobre TODOS los disponibles, no solo los que
+                    # pasan el filtro de avisos (que puede ser otro), y lleva su propia
+                    # deduplicacion para actuar solo ante sectores nuevos. Va DESPUES del aviso
+                    # (sale en ~1 s); un recordatorio o un sector ya visto no vuelve a reservar.
+                    if url_final in RESERVAR_TICKETMASTER and es_url_ticketmaster(url_final):
+                        candidatos = [d for d in disponibles if MARCADOR_SIN_DETALLE not in d]
+                        nuevas_reserva, _, _ = localidades_a_notificar(
+                            estado, url_final + CLAVE_RESERVA, candidatos)
+                        if nuevas_reserva:
+                            intentar_reserva(driver, url_final, nuevas_reserva, obtener_nombre_evento(driver))
 
                     # Antes esta pausa ocurria tras cada notificacion. Con la
                     # deduplicacion se avisa mucho menos, asi que se ata a la
