@@ -71,6 +71,7 @@ class Reserva:
     expira: str = ""
     detalle: str = ""
     retenidas: bool = False  # hay boletas retenidas aunque no se llegara al pago
+    conservar_pestana: bool = False  # no cerrar la pestana (p. ej. esta en una fila de Queue-it)
 
 
 def _sin_acentos(texto):
@@ -182,7 +183,8 @@ def reservar(pagina, sectores, maximo=MAXIMO_POR_LOCALIDAD, minimo=1, reloj=time
     limite = reloj() + TIEMPO_MAXIMO_RESERVA
     if not pagina.abrir_mapa():
         motivo = getattr(pagina, "motivo", "")
-        return Reserva(False, detalle="no se pudo abrir el mapa del evento" + (f": {motivo}" if motivo else ""))
+        return Reserva(False, detalle="no se pudo abrir el mapa del evento" + (f": {motivo}" if motivo else ""),
+                       conservar_pestana=bool(getattr(pagina, "en_fila", False)))
     ultimo = Reserva(False, detalle="sin sectores que reservar")
     for sector in sectores:
         ultimo = _reservar_sector(pagina, sector, maximo, minimo, limite, reloj)
@@ -304,6 +306,7 @@ class PaginaSelenium:
         self.url = url
         self.cargar = cargar  # navegar() del monitor: respeta el limite de carga
         self.motivo = ""      # por que fallo abrir_mapa(), para el aviso de Telegram
+        self.en_fila = False  # la pestana quedo en una fila de Queue-it
 
     def texto(self):
         try:
@@ -383,7 +386,15 @@ class PaginaSelenium:
 
     def abrir_mapa(self):
         self.motivo = ""
+        self.en_fila = False
         self.cargar(self.driver, self.url)
+        # En una venta con fila, este navegador puede quedar en la cola aunque el del
+        # monitor ya haya pasado. Esa pestana es un puesto en la fila: no se cierra.
+        if "queue-it.net" in (self.driver.current_url or "").lower():
+            self.en_fila = True
+            self.motivo = ("este navegador quedo en la fila de Queue-it; la pestana queda abierta "
+                           "para no perder el puesto")
+            return False
         texto = self.esperar(lambda t: "Ver entradas" in t, ESPERA_PASO)
         if texto is None:
             self.motivo = (f"la pagina no mostro 'Ver entradas' en {ESPERA_PASO}s "

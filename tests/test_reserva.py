@@ -335,6 +335,7 @@ class DriverTexto:
 
     def __init__(self, texto="", garantia=None, activa=()):
         self.texto = texto
+        self.current_url = "https://www.ticketmaster.co/event/x"
         self.scripts = []
         self.elemento = Elemento()
         self.garantia = garantia
@@ -418,6 +419,21 @@ class TestAbrirMapaReal(unittest.TestCase):
         with mock.patch.object(rt, "ESPERA_ACTIVA", 0):
             self.assertTrue(self.pagina_con(driver).clic(rt.RECHAZO_GARANTIA))
         self.assertEqual(bueno.clics, 1)
+
+    def test_fila_de_queue_it_se_detecta_y_conserva_la_pestana(self):
+        driver = DriverTexto("Estas en la fila")
+        driver.current_url = "https://ticketmasterco.queue-it.net/?c=x"
+        p = self.pagina_con(driver)
+        r = rt.reservar(p, [SECTOR])
+        self.assertFalse(r.ok)
+        self.assertTrue(r.conservar_pestana)
+        self.assertIn("Queue-it", r.detalle)
+
+    def test_un_fallo_normal_no_conserva_la_pestana(self):
+        driver = DriverTexto("Soporte\nIngresar / Registrarse\nVer entradas")
+        driver.current_url = "https://www.ticketmaster.co/event/x"
+        r = rt.reservar(self.pagina_con(driver), [SECTOR])
+        self.assertFalse(r.conservar_pestana)
 
     def test_texto_sin_elemento_no_hace_clic(self):
         driver = DriverTexto()

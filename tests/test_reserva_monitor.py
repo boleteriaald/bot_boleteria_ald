@@ -128,6 +128,55 @@ class TestIntentarReserva(Base):
         self.assertEqual(len(self.llamadas), 2)
 
 
+BTS = "https://www.ticketmaster.co/event/bts-world-tour-venta-general-sabado-3-octubre"
+
+
+class TestReservaPorSector(Base):
+    """RESERVAR_TICKETMASTER admite {"maximo", "sectores"}: se avisa de todo, se reserva solo eso."""
+
+    def setUp(self):
+        super().setUp()
+        self.m.RESERVAR_TICKETMASTER = {BTS: {"maximo": 4, "sectores": ["GRAMILLA"]}}
+
+    def test_reserva_solo_el_sector_que_coincide(self):
+        d = DriverFalso()
+        self.m.intentar_reserva(d, BTS, ["OCCIDENTAL BAJA", "VIP (GRAMILLA)", "SUR ALTA"], "BTS")
+        self.assertEqual(self.llamadas, [(["VIP (GRAMILLA)"], 4)])
+
+    def test_coincide_sin_importar_mayusculas_ni_parentesis(self):
+        self.m.intentar_reserva(DriverFalso(), BTS, ["Vip - Gramilla"], "BTS")
+        self.assertEqual(self.llamadas, [(["Vip - Gramilla"], 4)])
+
+    def test_si_ninguno_coincide_no_reserva_ni_abre_pestana(self):
+        d = DriverFalso()
+        self.assertIsNone(self.m.intentar_reserva(d, BTS, ["OCCIDENTAL BAJA", "SUR ALTA"], "BTS"))
+        self.assertEqual((self.llamadas, d.eventos, self.enviados), ([], [], []))
+        self.assertIn("ningun sector nuevo coincide", self.leer_registro())
+
+    def test_el_maximo_sale_del_dict(self):
+        self.m.RESERVAR_TICKETMASTER = {BTS: {"maximo": 2, "sectores": ["GRAMILLA"]}}
+        self.m.intentar_reserva(DriverFalso(), BTS, ["VIP (GRAMILLA)"], "BTS")
+        self.assertEqual(self.llamadas, [(["VIP (GRAMILLA)"], 2)])
+
+    def test_un_dict_sin_sectores_reserva_todos_los_que_lleguen(self):
+        self.m.RESERVAR_TICKETMASTER = {BTS: {"maximo": 4}}
+        self.m.intentar_reserva(DriverFalso(), BTS, ["A", "B"], "BTS")
+        self.assertEqual(self.llamadas, [(["A", "B"], 4)])
+
+    def test_el_nombre_viene_del_catalogo_el_filtro_de_avisos_no_interviene(self):
+        # No hay FILTROS_LOCALIDADES para BTS: se avisa de todo y la reserva elige sola.
+        self.assertNotIn(BTS, self.m.FILTROS_LOCALIDADES)
+
+    def test_pestana_en_fila_de_queue_it_no_se_cierra(self):
+        self.resultado = rt.Reserva(False, detalle="este navegador quedo en la fila de Queue-it",
+                                    conservar_pestana=True)
+        d = DriverFalso()
+        self.m.intentar_reserva(d, BTS, ["VIP (GRAMILLA)"], "BTS")
+        self.assertNotIn(("cerrada", "reserva"), d.eventos)
+        self.assertEqual(d.actual, "monitor")
+        self.assertIn("NO PUDE RESERVAR", self.enviados[0])
+
+
 class TestNavegadorDeReserva(Base):
     """Con RESERVA_PUERTO_DEPURACION se reserva en otro navegador, no en el del monitor."""
 

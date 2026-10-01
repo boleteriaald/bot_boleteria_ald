@@ -1678,11 +1678,17 @@ LECTURAS_VACIAS_PARA_OLVIDAR = 3  # Lecturas seguidas sin verla antes de darla p
 # boleteras. La deduplicacion cambia cuando se avisa, no cada cuanto se consulta.
 PAUSA_TRAS_DISPONIBILIDAD = 5  # Segundos
 
-# Reserva automatica en Ticketmaster: URL -> maximo de boletas a pedir (tope de
-# la plataforma: 4). Solo las URLs listadas aqui reservan; el resto solo avisa.
-# La clave debe coincidir caracter por caracter con URLS_A_MONITOREAR. Cuando un
-# sector del filtro aparece NUEVO, el bot abre otra pestana, reserva hasta la
-# pantalla de pago y avisa por Telegram: el pago lo hace siempre el usuario.
+# Reserva automatica en Ticketmaster. Solo las URLs listadas aqui reservan; el resto
+# solo avisa. La clave debe coincidir caracter por caracter con URLS_A_MONITOREAR.
+# El valor es el maximo de boletas a pedir (tope de la plataforma: 4), o un dict
+#     {"maximo": 4, "sectores": ["GRAMILLA"]}
+# para reservar SOLO los sectores cuyo nombre contenga alguna de esas palabras. Es
+# independiente de FILTROS_LOCALIDADES (que decide de que se AVISA): asi se sigue
+# avisando de todo y se reserva solo lo que la reserva sabe hacer. Importante: el
+# bot solo maneja localidades de ENTRADA GENERAL (se sube la cantidad con el "+");
+# las de silleteria numerada piden elegir el asiento en el mapa y no funcionan.
+# Cuando un sector que cumple aparece NUEVO, el bot abre otra pestana, reserva hasta
+# la pantalla de pago y avisa por Telegram: el pago lo hace siempre el usuario.
 # Vacio = el monitor se comporta como siempre (solo observa y notifica).
 #
 # Navegador donde se reserva: puerto de depuracion de un navegador APARTE del que
@@ -1694,6 +1700,14 @@ RESERVA_PUERTO_DEPURACION = 9223
 
 RESERVAR_TICKETMASTER = {
     "https://www.ticketmaster.co/event/carlos-vives-bucaramanga-venta-general": 4,
+
+    # BTS: solo VIP (GRAMILLA), la unica de entrada general; las demas son numeradas.
+    # Se casa por la palabra "GRAMILLA", unica entre sus sectores, por si cambian los parentesis.
+    # Army Membership no entra: pide el numero de membresia, lo pone el usuario.
+    "https://www.ticketmaster.co/event/bts-world-tour-venta-general-viernes-2-octubre":
+        {"maximo": 4, "sectores": ["GRAMILLA"]},
+    "https://www.ticketmaster.co/event/bts-world-tour-venta-general-sabado-3-octubre":
+        {"maximo": 4, "sectores": ["GRAMILLA"]},
 }
 
 # Un bloqueo persiste; avisar en cada ronda solo cambiaria un problema de
@@ -1930,13 +1944,22 @@ def intentar_reserva(driver, url, sectores, nombre_evento):
     Reserva en una pestana nueva y avisa por Telegram del resultado.
 
     La pestana del monitor no se toca: el monitor sigue en ella despues. Si se
-    llego al pago (o quedaron boletas retenidas), la pestana nueva se deja
-    abierta para que el usuario termine; si fallo limpio, se cierra.
+    llego al pago, quedaron boletas retenidas o el navegador esta en una fila
+    de Queue-it, la pestana nueva se deja abierta para que el usuario termine
+    (cerrarla perderia el puesto en la fila); si fallo limpio, se cierra.
 
     Nunca lanza: un fallo de la reserva no puede tumbar el bucle de monitoreo.
     """
-    maximo = RESERVAR_TICKETMASTER.get(url)
+    config = RESERVAR_TICKETMASTER.get(url)
+    maximo = config.get("maximo", 4) if isinstance(config, dict) else config
+    palabras = config.get("sectores") if isinstance(config, dict) else None
     sectores = [s for s in sectores if MARCADOR_SIN_DETALLE not in s]
+    if palabras:
+        claves = [normalizar_nombre(p) for p in palabras if normalizar_nombre(p)]
+        todos = sectores
+        sectores = [s for s in sectores if any(c in normalizar_nombre(s) for c in claves)]
+        if todos and not sectores:
+            log.info(f"RESERVA: ningun sector nuevo coincide con {palabras}: {todos} | {url}")
     if not maximo or not sectores:
         return None
 
@@ -1962,7 +1985,7 @@ def intentar_reserva(driver, url, sectores, nombre_evento):
         navegador.switch_to.new_window("tab")
         pagina = reserva_ticketmaster.PaginaSelenium(navegador, url, navegar)
         reserva = reserva_ticketmaster.reservar(pagina, sectores, maximo=maximo)
-        cerrar = not reserva.ok and not reserva.retenidas
+        cerrar = not reserva.ok and not reserva.retenidas and not reserva.conservar_pestana
     except Exception as e:
         log.exception(f"RESERVA: error inesperado | {url}")
         reserva = reserva_ticketmaster.Reserva(False, sectores[0], detalle=f"error inesperado: {e}", retenidas=True)
