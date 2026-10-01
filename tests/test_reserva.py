@@ -7,6 +7,7 @@ confirmar -> pago. `cupo` son las boletas realmente libres; la pagina solo lo
 delata rechazando la seleccion al pulsar Continuar.
 """
 import unittest
+from unittest import mock
 
 import apoyo  # noqa: F401  (pone la raiz del proyecto en sys.path)
 import reserva_ticketmaster as rt
@@ -243,6 +244,19 @@ class TestLimites(unittest.TestCase):
         self.assertIn("no elegi otra entrega", r.detalle)
         self.assertNotIn("Entrega a domicilio", p.clics)
 
+    def test_el_formulario_de_tarjeta_directo_tambien_es_el_pago(self):
+        class TarjetaDirecta(PaginaFalsa):
+            def texto(self):
+                if self.estado == "pago":
+                    return ("La reserva expira en 04:26\nIngresa los datos de tu tarjeta\n"
+                            "Número de tarjeta\nResumen de compra\n4 Total\n$ 1.527.000\n")
+                return super().texto()
+        p = TarjetaDirecta()
+        r = reservar(p)
+        self.assertTrue(r.ok)
+        self.assertEqual((r.expira, r.total), ("04:26", "$ 1.527.000"))
+        self.assertLessEqual(set(p.clics), {"Continuar", "no gracias", rt.ENTREGA_OBLIGATORIA, "Confirmar reserva"})
+
     def test_se_detiene_en_el_pago_sin_tocar_ningun_medio(self):
         p = PaginaFalsa()
         r = reservar(p)
@@ -252,6 +266,18 @@ class TestLimites(unittest.TestCase):
         self.assertLessEqual(set(p.clics), permitidos)
         for medio in ("Tarjeta", "PSE", "Efectivo", "Armatuvaca", "Sí, quiero"):
             self.assertFalse(any(medio in c for c in p.clics))
+
+    def test_el_enlace_de_terminos_no_se_confunde_con_la_garantia_puesta(self):
+        p = PaginaFalsa()
+        r = reservar(p)
+        self.assertTrue(r.ok)
+        self.assertEqual(p.clics.count("no gracias"), 1)     # se rechaza una vez, no en bucle
+
+    def test_un_fallo_deja_en_el_detalle_lo_que_mostraba_la_pantalla(self):
+        p = PaginaFalsa(se_atasca_en="lista")
+        r = reservar(p)
+        self.assertIn("Pantalla:", r.detalle)
+        self.assertIn("Cambiar tarifa", r.detalle)
 
     def test_pagina_que_no_avanza_falla_sin_dar_vueltas_eternas(self):
         p = PaginaFalsa(se_atasca_en="lista")
@@ -286,16 +312,50 @@ class TestContinuarSinRespuesta(unittest.TestCase):
         self.assertEqual(p.limpiezas, 0)        # no se bajo de cantidad por un clic perdido
 
 
-class DriverTexto:
-    """Driver minimo: devuelve el texto de la pagina y acepta cualquier clic."""
+class StaleElementReferenceException(Exception):
+    """El modulo la reconoce por su NOMBRE, sin importar selenium."""
 
-    def __init__(self, texto):
+
+class Elemento:
+    def __init__(self, falla_clic=False, caduco=False):
+        self.clics = 0
+        self.falla_clic = falla_clic
+        self.caduco = caduco
+
+    def click(self):
+        if self.caduco:
+            raise StaleElementReferenceException("elemento caduco")
+        if self.falla_clic:
+            raise RuntimeError("otro elemento lo tapa")
+        self.clics += 1
+
+
+class DriverTexto:
+    """Driver minimo: da el texto de la pagina y un Elemento a cualquier busqueda."""
+
+    def __init__(self, texto="", garantia=None, activa=()):
         self.texto = texto
         self.scripts = []
+        self.elemento = Elemento()
+        self.garantia = garantia
+        self.activa = iter(activa)
+        self.clics_js = []
+        self.cola = []      # elementos que devuelven las proximas busquedas, en orden
 
     def execute_script(self, script, *args):
         self.scripts.append(script)
-        return self.texto if "document.body.innerText" in script else True
+        if script == rt.JS_GARANTIA:
+            return self.garantia
+        if script == rt.JS_GARANTIA_ACTIVA:
+            return next(self.activa, False)
+        if "document.body.innerText" in script:
+            return self.texto
+        if script.startswith("arguments[0].click"):
+            if args[0].caduco:
+                raise StaleElementReferenceException("elemento caduco")
+            self.clics_js.append(args[0])
+            return None
+        return self.cola.pop(0) if self.cola else self.elemento
 
 
 class TestAbrirMapaReal(unittest.TestCase):
@@ -310,14 +370,82 @@ class TestAbrirMapaReal(unittest.TestCase):
         self.assertIn("no hay sesion iniciada", r.detalle)
         self.assertIn("mapa", r.detalle)
 
-    def test_la_garantia_se_rechaza_por_su_lista_y_no_por_el_texto(self):
-        # "no gracias" no es un elemento: buscarlo por texto fallo en la primera reserva real.
-        driver = DriverTexto("")
-        p = rt.PaginaSelenium(driver, "https://x", lambda d, u: None)
-        self.assertTrue(p.clic(rt.RECHAZO_GARANTIA))
-        self.assertIn("insurance-options", driver.scripts[-1])
-        p.clic("Continuar")
-        self.assertNotIn("insurance-options", driver.scripts[-1])   # el resto sigue por texto
+    def pagina_con(self, driver):
+        return rt.PaginaSelenium(driver, "https://x", lambda d, u: None)
+
+    def test_los_clics_son_nativos_y_no_de_javascript(self):
+        # Un clic de JavaScript sobre la garantia no la activo (2a reserva real).
+        driver = DriverTexto()
+        self.assertTrue(self.pagina_con(driver).clic("Continuar"))
+        self.assertEqual(driver.elemento.clics, 1)
+        self.assertEqual(driver.clics_js, [])
+
+    def test_si_algo_tapa_el_elemento_cae_al_clic_de_javascript(self):
+        driver = DriverTexto()
+        driver.elemento = Elemento(falla_clic=True)
+        self.assertTrue(self.pagina_con(driver).clic("Continuar"))
+        self.assertEqual(driver.clics_js, [driver.elemento])
+
+    def test_elemento_caduco_se_vuelve_a_buscar_y_no_aborta(self):
+        # 5a reserva real: la pagina se repinto entre buscar y pulsar "Ver entradas".
+        caduco, bueno = Elemento(caduco=True), Elemento()
+        driver = DriverTexto()
+        driver.cola = [caduco, bueno]
+        self.assertTrue(self.pagina_con(driver).clic("Ver entradas"))
+        self.assertEqual(bueno.clics, 1)
+
+    def test_si_caduca_siempre_devuelve_falso_en_vez_de_lanzar(self):
+        driver = DriverTexto()
+        driver.cola = [Elemento(caduco=True) for _ in range(3)]
+        self.assertFalse(self.pagina_con(driver).clic("Ver entradas"))
+
+    def test_garantia_con_elemento_caduco_tambien_reintenta(self):
+        caduco, bueno = Elemento(caduco=True), Elemento()
+        driver = DriverTexto(garantia={"ya": False, "el": [caduco]}, activa=[True])
+        driver.garantia = {"ya": False, "el": [caduco]}
+        original = driver.execute_script
+
+        llamadas = {"n": 0}
+
+        def script(s, *a):
+            if s == rt.JS_GARANTIA:
+                llamadas["n"] += 1
+                # la 1a vez (comprobar) y la 2a (comprobar ya) devuelven lo normal;
+                # la 3a (buscar candidato) da el caduco; la 4a, el bueno
+                return {"ya": False, "el": [caduco if llamadas["n"] <= 3 else bueno]}
+            return original(s, *a)
+        driver.execute_script = script
+        with mock.patch.object(rt, "ESPERA_ACTIVA", 0):
+            self.assertTrue(self.pagina_con(driver).clic(rt.RECHAZO_GARANTIA))
+        self.assertEqual(bueno.clics, 1)
+
+    def test_texto_sin_elemento_no_hace_clic(self):
+        driver = DriverTexto()
+        driver.elemento = None
+        self.assertFalse(self.pagina_con(driver).clic("Continuar"))
+
+    def test_garantia_prueba_del_elemento_mas_interno_al_mas_externo_hasta_que_quede_activa(self):
+        strong, cabecera, li = Elemento(), Elemento(), Elemento()
+        driver = DriverTexto(garantia={"ya": False, "el": [strong, cabecera, li]}, activa=[False, True])
+        with mock.patch.object(rt, "ESPERA_ACTIVA", 0):
+            self.assertTrue(self.pagina_con(driver).clic(rt.RECHAZO_GARANTIA))
+        self.assertEqual((strong.clics, cabecera.clics, li.clics), (1, 1, 0))
+
+    def test_garantia_que_no_se_activa_devuelve_falso(self):
+        elementos = [Elemento(), Elemento(), Elemento()]
+        driver = DriverTexto(garantia={"ya": False, "el": elementos})
+        with mock.patch.object(rt, "ESPERA_ACTIVA", 0):
+            self.assertFalse(self.pagina_con(driver).clic(rt.RECHAZO_GARANTIA))
+        self.assertEqual([e.clics for e in elementos], [1, 1, 1])
+
+    def test_garantia_ya_rechazada_no_se_toca(self):
+        elemento = Elemento()
+        driver = DriverTexto(garantia={"ya": True, "el": [elemento]})
+        self.assertTrue(self.pagina_con(driver).clic(rt.RECHAZO_GARANTIA))
+        self.assertEqual(elemento.clics, 0)
+
+    def test_garantia_que_no_esta_en_la_pagina(self):
+        self.assertFalse(self.pagina_con(DriverTexto(garantia=None)).clic(rt.RECHAZO_GARANTIA))
 
     def test_con_sesion_no_se_queja_de_la_sesion(self):
         p = self.pagina("Mis entradas\nCerrar sesión\nVer entradas\nSeleccionar sector")

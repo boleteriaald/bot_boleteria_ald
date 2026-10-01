@@ -33,16 +33,25 @@ MAXIMO_POR_LOCALIDAD = 4       # Tope de Ticketmaster por localidad
 ESPERA_RESPUESTA = 8           # Segundos antes de dar un clic por perdido
 ESPERA_PASO = 15               # Segundos maximos esperando una pantalla nueva
 PASOS_MAXIMOS = 12             # Pantallas entre la seleccion y el pago
+ESPERA_ACTIVA = 3              # Segundos hasta ver la garantia marcada tras un clic
 TIEMPO_MAXIMO_RESERVA = 150    # Segundos para todo el intento
 
 ENTREGA_OBLIGATORIA = "Boleto Digital en la App"
 RECHAZO_GARANTIA = "no gracias"
 
 RE_EXPIRA = re.compile(r"La reserva expira en\s*(\d{1,2}:\d{2})", re.I)
-RE_PAGO = re.compile(r"Selecciona c.mo deseas abonar", re.I)
+# Pantalla de pago: la lista de medios ("Selecciona como deseas abonar") o, si el perfil
+# ya trae un medio elegido, directamente el formulario ("Ingresa los datos de tu
+# tarjeta", visto en la 4a reserva real). El contador "La reserva expira en" solo
+# aparece ya en la etapa de pago.
+RE_PAGO = re.compile(r"Selecciona c.mo deseas abonar|Ingresa los datos de tu tarjeta|La reserva expira en", re.I)
 RE_GARANTIA = re.compile(r"recuperar el total de tu compra", re.I)
 RE_ENTREGA = re.compile(r"Selecciona c.mo deseas recibir", re.I)
 RE_TOTAL = re.compile(r"Total\s*\$\s*([\d.]+)")
+# La garantia puesta suma esta LINEA SUELTA al resumen de compra. No se busca la frase en
+# cualquier parte: el enlace de terminos dice "Garantia Extendida" y seguia ahi
+# tras rechazarla, con lo que el bot creia tenerla puesta y no pasaba de pantalla.
+RE_LINEA_GARANTIA = re.compile(r"^\s*GARANTIA EXTENDIDA\s*$", re.M)
 # NO verificado en vivo: el texto exacto del aviso de "no hay boletas en esa
 # seccion". Por eso solo cuenta si aparece DESPUES del clic (no estaba antes),
 # y la falta de respuesta se trata igual que un error.
@@ -92,7 +101,9 @@ def _hasta_pago(pagina, sector, cantidad, pedidas, limite, reloj):
     """Recorre garantia, entrega y confirmacion hasta la pantalla de pago."""
 
     def fallo(detalle):
-        return Reserva(False, sector, cantidad, pedidas, detalle=detalle, retenidas=True)
+        pantalla = " | ".join(l.strip() for l in pagina.texto().splitlines() if l.strip())[-260:]
+        return Reserva(False, sector, cantidad, pedidas, retenidas=True,
+                       detalle=f"{detalle}. Pantalla: ...{pantalla}" if pantalla else detalle)
 
     estancados = 0
     for _ in range(PASOS_MAXIMOS):
@@ -114,7 +125,7 @@ def _hasta_pago(pagina, sector, cantidad, pedidas, limite, reloj):
         elif RE_GARANTIA.search(t):
             # La garantia viene marcada de fabrica y suma su linea al resumen:
             # mientras siga ahi, hay que rechazarla; cuando desaparece, se sigue.
-            accion = RECHAZO_GARANTIA if "GARANTIA EXTENDIDA" in _sin_acentos(t).upper() else "Continuar"
+            accion = RECHAZO_GARANTIA if RE_LINEA_GARANTIA.search(t) else "Continuar"
         elif "Cambiar tarifa" in t:
             accion = "Continuar"
         else:
@@ -204,10 +215,10 @@ def mensaje(reserva, evento, url, hora):
 
 
 # ----------------------------------------------------------------------------
-# Pagina real (Selenium). NO verificada en vivo: los selectores salen del flujo
-# observado (textos, .sectorOption, botones sin texto del selector), pero no se
-# ha ejecutado contra la pagina desde Selenium. Comprobarlo con una reserva real
-# supervisada antes de dejarlo activo sin vigilancia.
+# Pagina real (Selenium). Verificado en vivo hasta la garantia (30-sep/1-oct-2026):
+# mapa, sector, "+" y los dos Continuar. La garantia pedia clic nativo (ver abajo).
+# Entrega y confirmacion estan comprobadas a mano en el DOM pero aun no ejecutadas
+# por el bot.
 # ----------------------------------------------------------------------------
 _JS_VISIBLE = ("var vis=function(e){var r=e.getBoundingClientRect();"
                "return r.width>0&&r.height>0&&getComputedStyle(e).visibility!=='hidden';};")
@@ -221,10 +232,9 @@ var c = Array.from(document.querySelectorAll('button,a,[role=button],label,h1,h2
       return x === t || (x.indexOf(t) === 0 && x.length < t.length + 40);
   });
 c = c.filter(function (e) { return !c.some(function (o) { return o !== e && e.contains(o); }); });
-if (!c.length) { return false; }
+if (!c.length) { return null; }
 c[0].scrollIntoView({block: 'center'});
-c[0].click();
-return true;
+return c[0];
 """
 
 JS_ELEGIR_SECTOR = _JS_VISIBLE + """
@@ -234,24 +244,33 @@ var o = Array.from(document.querySelectorAll('.sectorOption')).filter(function (
     var h = e.querySelector('h5');
     return sin(h ? h.innerText : e.innerText) === n;
 });
-if (!o.length) { return false; }
-o[0].click();
-return true;
+if (!o.length) { return null; }
+return o[0];
 """
 
 # Garantia: "no gracias" NO es un elemento propio, es un nodo de texto suelto junto
 # a un <strong>, asi que JS_CLIC_TEXTO no lo encuentra (asi fallo la primera
 # reserva real). Las opciones son <li> de ul.insurance-options y la elegida lleva la
-# clase "active" (verificado en vivo, sep-2026). Se hace clic en la cabecera de la
-# opcion "no gracias"; si ya esta activa no se toca.
-JS_RECHAZAR_GARANTIA = """
+# clase "active" (verificado en vivo, sep-2026). Un clic de JavaScript sobre la
+# cabecera NO la activo (segunda reserva real): se pulsa con un clic nativo, del
+# elemento mas interno al mas externo, hasta que la opcion quede "active" y desaparezca la linea de la garantia del resumen.
+JS_GARANTIA = r"""
 var li = Array.from(document.querySelectorAll('ul.insurance-options > li')).filter(function (e) {
     return /no gracias/i.test(e.innerText || '');
 })[0];
-if (!li) { return false; }
-if (li.classList.contains('active')) { return true; }
-(li.querySelector('.insurance-header') || li).click();
-return true;
+if (!li) { return null; }
+var cab = li.querySelector('.insurance-header');
+var el = [li, cab, li.querySelector('strong')].filter(function (e) { return e; });
+li.scrollIntoView({block: 'center'});
+var puesta = /^\s*GARANTIA EXTENDIDA\s*$/m.test(document.body.innerText);
+return {ya: li.classList.contains('active') && !puesta, el: el};
+"""
+
+JS_GARANTIA_ACTIVA = r"""
+var li = Array.from(document.querySelectorAll('ul.insurance-options > li')).filter(function (e) {
+    return /no gracias/i.test(e.innerText || '');
+})[0];
+return !!li && li.classList.contains('active') && !/^\s*GARANTIA EXTENDIDA\s*$/m.test(document.body.innerText);
 """
 
 # El "+" es el ultimo boton sin texto del panel "Seleccionar tarifa" (el "-" va
@@ -268,13 +287,12 @@ for (var i = 0; cont && i < 6; i++) {
     });
     if (bs.length >= 2) {
         var mas = bs[bs.length - 1];
-        if (mas.disabled || mas.getAttribute('aria-disabled') === 'true') { return false; }
-        mas.click();
-        return true;
+        if (mas.disabled || mas.getAttribute('aria-disabled') === 'true') { return null; }
+        return mas;
     }
     cont = cont.parentElement;
 }
-return false;
+return null;
 """
 
 
@@ -304,10 +322,64 @@ class PaginaSelenium:
                 return None
             time.sleep(0.5)
 
+    def _clic_elemento(self, buscar):
+        """
+        Clic nativo (como un raton) sobre el elemento que devuelve buscar().
+
+        La pagina se repinta sola y un elemento recien encontrado puede caducar
+        antes del clic (StaleElementReferenceException, visto en la 5a reserva
+        real, en el primer paso): en ese caso se vuelve a buscar, hasta 3 veces.
+        Si algo tapa el elemento, clic de JavaScript como respaldo.
+        """
+        for _ in range(3):
+            elemento = buscar()
+            if not elemento:
+                return False
+            try:
+                try:
+                    elemento.click()
+                except Exception as e:
+                    if type(e).__name__ == "StaleElementReferenceException":
+                        raise
+                    self.driver.execute_script("arguments[0].click();", elemento)
+                return True
+            except Exception as e:
+                if type(e).__name__ != "StaleElementReferenceException":
+                    raise
+                time.sleep(0.3)
+        return False
+
+    def _esperar_script(self, script, segundos):
+        limite = time.time() + segundos
+        while True:
+            if self.driver.execute_script(script):
+                return True
+            if time.time() >= limite:
+                return False
+            time.sleep(0.3)
+
+    def _candidatos_garantia(self):
+        info = self.driver.execute_script(JS_GARANTIA)
+        return info or {}
+
+    def _rechazar_garantia(self):
+        if not self._candidatos_garantia():
+            return False
+        if self._candidatos_garantia().get("ya"):
+            return True
+        for i in range(3):     # <li>, cabecera, texto: del mas externo al mas interno
+            def candidato(i=i):
+                lista = self._candidatos_garantia().get("el", [])
+                return lista[i] if i < len(lista) else None
+            self._clic_elemento(candidato)
+            if self._esperar_script(JS_GARANTIA_ACTIVA, ESPERA_ACTIVA):
+                return True
+        return False
+
     def clic(self, texto):
         if texto == RECHAZO_GARANTIA:
-            return bool(self.driver.execute_script(JS_RECHAZAR_GARANTIA))
-        return bool(self.driver.execute_script(JS_CLIC_TEXTO, texto))
+            return self._rechazar_garantia()
+        return self._clic_elemento(lambda: self.driver.execute_script(JS_CLIC_TEXTO, texto))
 
     def abrir_mapa(self):
         self.motivo = ""
@@ -329,7 +401,7 @@ class PaginaSelenium:
         return True
 
     def elegir_sector(self, nombre):
-        if not self.driver.execute_script(JS_ELEGIR_SECTOR, nombre):
+        if not self._clic_elemento(lambda: self.driver.execute_script(JS_ELEGIR_SECTOR, nombre)):
             return False
         return self.esperar(lambda t: "Seleccionar tarifa" in t, ESPERA_PASO) is not None
 
@@ -340,7 +412,7 @@ class PaginaSelenium:
     def fijar_cantidad(self, n):
         actual = self._cantidad()
         while actual < n:
-            if not self.driver.execute_script(JS_SUMAR):
+            if not self._clic_elemento(lambda: self.driver.execute_script(JS_SUMAR)):
                 break
             if self.esperar(lambda t: self._cantidad() > actual, ESPERA_RESPUESTA) is None:
                 break
