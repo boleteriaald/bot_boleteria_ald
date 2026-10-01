@@ -180,9 +180,21 @@ toca ningún medio de pago ni escribe datos de tarjeta.
 - El estado de avisos cuenta: la reserva solo se dispara con un sector **nuevo**. Para
   reprobar con un sector ya avisado hay que parar el monitor y quitar esa clave de
   `estado_notificaciones.json` (solo esa, no el archivo entero).
-- **Sin verificar en vivo**: el texto exacto del aviso de "no hay boletas" y los
-  selectores de `PaginaSelenium` (hasta ahora solo probados contra una página
-  simulada). Hacer una reserva real supervisada antes de dejarlo sin vigilancia.
+- **Verificado de punta a punta** (1-oct-2026, 4 VIP de Carlos Vives, disparado por el
+  monitor en 5 s hasta el pago): mapa, sector, "+", garantía, entrega, confirmación y
+  pago. Lo aprendido a golpes:
+  - Los clics deben ser **nativos** (Selenium `element.click()`), no `.click()` de
+    JavaScript: este no activa la opción de garantía. Si un elemento caduca
+    (`StaleElementReferenceException`, la página se repinta sola) se vuelve a buscar.
+  - La garantía puesta es la **línea suelta** `GARANTIA EXTENDIDA` del resumen; el
+    enlace de términos también nombra "Garantía Extendida" y no cuenta.
+  - Si el perfil ya trae un medio de pago elegido, la página salta directo a
+    "Ingresa los datos de tu tarjeta" (sin lista de medios). El contador
+    "La reserva expira en" solo aparece ya en la etapa de pago.
+  - `probar_reserva.py` prueba la reserva sola, sin monitor ni estado de avisos.
+- **Sin verificar en vivo**: el caso de menos de 4 boletas (la bajada 4→3→2→1 solo
+  está probada con una página simulada) y el texto exacto del aviso de "no hay
+  boletas".
 
 ## TaquillaLive: lo que ya se sabe
 
