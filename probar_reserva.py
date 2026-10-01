@@ -19,8 +19,11 @@ import sys
 RAIZ = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, RAIZ)
 
-URL = "https://www.ticketmaster.co/event/carlos-vives-bucaramanga-venta-general"
-SECTOR = "VIP (silletería no numerada)"
+# URL = "https://www.ticketmaster.co/event/carlos-vives-bucaramanga-venta-general"
+# SECTOR = "VIP (silletería no numerada)"
+
+URL = "https://www.ticketmaster.co/event/iron-maiden-venta-general"
+SECTOR = "111 - 113 - 115"
 
 
 def cargar_monitor():

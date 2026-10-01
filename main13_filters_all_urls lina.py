@@ -76,6 +76,8 @@ def preparar_consola():
 
 URLS_A_MONITOREAR = [
 
+    "https://www.ticketmaster.co/event/iron-maiden-venta-general",
+
     # VIVES PRUEBA
     "https://www.ticketmaster.co/event/carlos-vives-bucaramanga-venta-general",
 
@@ -175,6 +177,10 @@ URLS_A_MONITOREAR = [
 # Si está en el diccionario, solo se notificará si coincide con una de las localidades
 
 FILTROS_LOCALIDADES = {
+
+    "https://www.ticketmaster.co/event/iron-maiden-venta-general":
+    # ["back", "107"],
+        ["front field sur", "111"],
 
     # VIVES PRUEBA (solo el VIP normal: "VIP" a secas casaria tambien con los dos "Paquete VIP")
     "https://www.ticketmaster.co/event/carlos-vives-bucaramanga-venta-general":
