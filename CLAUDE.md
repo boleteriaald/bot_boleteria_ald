@@ -150,8 +150,48 @@ Digital en la App" aunque haya otras entregas, y **parar antes de pagar**: el bo
 toca ningún medio de pago ni escribe datos de tarjeta.
 
 - El catálogo **no dice cuántas boletas quedan**: solo `lowAvailability` y `max: 4` en
-  la tarifa. Si pides más de las libres, la página lo rechaza y hay que limpiar la
-  selección y volver a elegir; por eso se baja 4 → 3 → 2 → 1.
+  la tarifa (ningún sector de Vives tenía cupo bajo para probarlo).
+- **Cuando no hay las pedidas** (verificado en vivo, Iron Maiden, sector 107, 1-oct-2026):
+  el "+" **se frena en el máximo disponible** y la página muestra "Límite de cantidad —
+  Has seleccionado el máximo disponible para esta tarifa". No hay rechazo al Continuar:
+  al pedir 4 quedó en 2. `fijar_cantidad()` deja de pulsar al ver ese aviso (sin él
+  esperaba 8 s por cada clic de más) y la reserva sigue con las que haya. La bajada
+  4 → 3 → 2 → 1 con limpiar selección queda como respaldo por si Continuar rechazara
+  (carrera con otro comprador); ese rechazo aún no se ha visto. Los intentos y el
+  aviso quedan en `Reserva.intentos`, en el log y en el Telegram.
+- **Localidades numeradas** (verificado en vivo con Iron Maiden, 1-oct-2026; el recorrido
+  completo con el bot aún no se ha ejecutado):
+  - El evento puede no tener "Ver entradas": la lista de sectores ya está a la vista.
+  - Hay un paso **"Seleccionar sección"** (111, 113…): las filas libres son
+    `div.sectionOption` (no `sectorOption`, que son las de sectores) y las agotadas
+    `item-inactive`. Si una palabra de `RESERVAR_TICKETMASTER["sectores"]` nombra una
+    sección ("107" dentro de "101 - 103 - 105 - 107"), solo se reserva esa; si está
+    agotada no se reserva otra. Si ninguna palabra la nombra, vale la primera libre.
+  - En este paso no hay "Continuar": el botón es **"Buscar mejores asientos"**, que
+    asigna asientos juntos y deja las boletas listadas ("Cambiar tarifa"). Ahí **ya corre**
+    "La reserva expira en": no sirve de señal de pago (por eso `RE_PAGO` no la usa).
+  - Sin asientos: "Lo sentimos! No hay asientos libres para esta sección. elige otra
+    sección." y "Limpiar selección" no hace nada; solo el enlace "elige otra sección"
+    devuelve a los sectores.
+  - El aviso "Límite de cantidad" es un **diálogo modal** (`.modal.in`) con su propio
+    "Continuar" que solo lo cierra; hay que cerrarlo antes de seguir.
+  - `RESERVAR_TICKETMASTER` (qué reservar) es independiente de `FILTROS_LOCALIDADES`
+    (de qué avisar): la reserva mira **todos** los disponibles y lleva su propia
+    deduplicación en `estado_notificaciones.json` (claves `url@reserva||sector`). Antes
+    colgaba de los sectores ya filtrados para avisar y, con filtros distintos, nunca
+    reservaba. Una sola URL puede llevar varias palabras, y **su orden es la prioridad**
+    (la primera manda; a igual prioridad, el orden del catálogo).
+  - Para reprobar con un sector ya visto hay que quitar de ese archivo su clave
+    `url@reserva||sector` (no la de avisos).
+- **Varias reservas a la vez** (verificado a mano por Aldemar, 1-oct-2026): Ticketmaster
+  deja tener **varias reservas vivas en la misma cuenta**, una por pestaña, cada una con su
+  contador, hasta la pantalla de pago (probó 3 localidades distintas). Por eso
+  `"max_reservas": N` reserva una localidad por pestaña hasta N (BTS e Iron Maiden: 8);
+  las fallidas no cuentan, con menos sectores que N se reservan los que haya, y el
+  usuario decide cuál pagar (las demás vencen solas). Va en `_reservar_varias()`;
+  sin `max_reservas` (=1) es una sola reserva. Cada localidad ya reservada tiene su propio
+  enfriamiento de 10 min (`_RESERVADOS`) y todo el intento tiene un tope de
+  `TIEMPO_MAXIMO_RESERVAS` (300 s): el monitor no revisa nada más mientras reserva.
 - Hay **dos botones "Continuar"** en la pantalla de selección y uno no hace nada:
   de ahí el "primer clic perdido". Hay un único reintento de clic por pantalla, nunca
   una recarga. Además hay un "Continuar" de un diálogo oculto (cuenta creada).
