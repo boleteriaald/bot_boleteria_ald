@@ -351,6 +351,16 @@ class TestSeccionesComoReservas(Base):
         self.assertIn("4 RESERVA(S) LISTA(S)", self.enviados[-1])
         self.assertIn(("cerrada", "reserva"), d.eventos)                          # la ultima pestana vacia se cierra
 
+    def test_el_fin_del_sector_deja_constancia_de_lo_que_mostraba_la_pagina(self):
+        g = self.GRUPO
+        fin = sin_mas(g)
+        fin.secciones_vistas = ["117:libre", "118:no", "119:libre", "120:libre"]
+        self.cola = [listo_sec(g, "117"), fin]
+        self.lanzar()
+        registro = self.leer_registro()
+        self.assertIn("sin mas secciones", registro)
+        self.assertIn("118:no", registro)
+
     def test_los_mensajes_dicen_que_seccion_es_cada_una(self):
         g = self.GRUPO
         self.cola = [listo_sec(g, "117 (+18)"), listo_sec(g, "119 (+18)"), sin_mas(g)]

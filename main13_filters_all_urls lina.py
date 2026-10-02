@@ -1719,13 +1719,13 @@ RESERVAR_TICKETMASTER = {
     # "https://www.ticketmaster.co/event/mejor-tarde-que-nunca-romeo-santos-prince-royce-venta-general":
     #     {"maximo": 8, "sectores": ["102", "104", "106"], "max_reservas": 8},
     #
-    # "https://www.ticketmaster.co/event/calvin-harris-venta-general":
-    #     {"maximo": 8, "max_reservas": 8},
-    #
-    # "https://www.ticketmaster.co/event/bunbury-nuevas-mutaciones-tour-2026-cali":
-    #     {"maximo": 8, "max_reservas": 8},
-    #
-    # "https://www.ticketmaster.co/event/carlos-vives-bucaramanga-venta-general": 4,
+    "https://www.ticketmaster.co/event/calvin-harris-venta-general":
+        {"maximo": 4, "max_reservas": 8},
+
+    "https://www.ticketmaster.co/event/bunbury-nuevas-mutaciones-tour-2026-cali":
+        {"maximo": 4, "max_reservas": 8},
+
+    "https://www.ticketmaster.co/event/carlos-vives-bucaramanga-venta-general": 4,
 
     # IRON MAIDEN: Back Field es de entrada general; "107" nombra la SECCION 107 del sector
     # numerado "101 - 103 - 105 - 107" (el bot reserva esa seccion, no la primera libre).
@@ -2057,7 +2057,12 @@ def _reservar_varias(navegador, url, sectores, maximo, max_reservas, palabras, n
             reserva = _reserva_en_pestana(navegador, url, [sector], maximo, palabras, excluidas)
 
             if reserva.sin_mas_secciones and not reserva.ok:
-                break  # ya no quedaba ninguna seccion por reservar en este sector: no es un fallo
+                # Ya no quedaba ninguna seccion por reservar en este sector: no es un fallo,
+                # pero se deja constancia de lo que mostraba la pagina (p. ej. una seccion
+                # momentaneamente no disponible) para poder explicar por que se paro.
+                log.info(f"RESERVA: sin mas secciones en [{sector}]; la pagina mostraba "
+                         f"{reserva.secciones_vistas}, ya hechas {sorted(excluidas)} | {url}")
+                break
             clave = reserva_ticketmaster._normalizar(reserva.seccion)
             if reserva.ok or reserva.retenidas:
                 _RESERVADOS[(url, sector, clave)] = time.time()

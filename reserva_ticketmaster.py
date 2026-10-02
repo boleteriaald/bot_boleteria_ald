@@ -82,6 +82,7 @@ class Reserva:
     intentos: list = field(default_factory=list)  # ['4: rechazada [texto de la pagina]', '3: ok']
     seccion: str = ""            # seccion elegida dentro de un sector numerado ("117 (+18)")
     sin_mas_secciones: bool = False  # el sector numerado no tenia mas secciones por reservar
+    secciones_vistas: list = field(default_factory=list)  # ['117:libre', '118:no', ...] en el ultimo paso
 
 
 def _sin_acentos(texto):
@@ -187,6 +188,7 @@ def _reservar_sector(pagina, sector, maximo, minimo, limite, reloj):
     """Prueba 4, 3, 2, 1: la pagina no dice cuantas hay, solo rechaza las que sobran."""
     n = maximo
     intentos = []
+    pagina.seccion_objetivo = ""   # cada sector empieza eligiendo seccion desde cero
     while n >= minimo:
         if reloj() > limite:
             return Reserva(False, sector, pedidas=maximo, detalle="se acabo el tiempo", intentos=intentos)
@@ -213,6 +215,10 @@ def _reservar_sector(pagina, sector, maximo, minimo, limite, reloj):
             return resultado
 
         intentos.append(f"{marcadas}: rechazada [{nota}]")
+        # Se baja la cantidad en la MISMA seccion: la rechazada desaparece de la lista y se
+        # recarga para reactivarla. Sin fijarla, el siguiente intento caia en otra seccion
+        # con la cantidad ya rebajada (en Calvin: 118 rechaza 4, y la 119 salia con 3).
+        pagina.seccion_objetivo = getattr(pagina, "seccion", "")
         pagina.limpiar()
         # Si el selector ya se quedo corto (marco 2 de 4), no se repite ese numero.
         n = min(n, marcadas) - 1
@@ -237,6 +243,7 @@ def reservar(pagina, sectores, maximo=MAXIMO_POR_LOCALIDAD, minimo=1, reloj=time
         ultimo = _reservar_sector(pagina, sector, maximo, minimo, limite, reloj)
         ultimo.seccion = getattr(pagina, "seccion", "")
         ultimo.sin_mas_secciones = bool(getattr(pagina, "sin_secciones", False))
+        ultimo.secciones_vistas = list(getattr(pagina, "secciones_vistas", []))
         if ultimo.ok or ultimo.retenidas or reloj() > limite:
             break
     return ultimo
@@ -415,8 +422,13 @@ class PaginaSelenium:
         # Secciones (normalizadas) que NO se deben elegir: las ya reservadas en este sector.
         # Asi cada seccion libre es su propia reserva, en su propia pestana.
         self.excluir_secciones = set()
+        # Seccion a la que se vuelve tras un rechazo. Un rechazo (p. ej. 4 en una seccion con solo
+        # dos asientos sueltos) la hace DESAPARECER de la lista hasta recargar la pagina; sin esto
+        # el reintento con menos boletas caia en OTRA seccion y la rebajada cantidad se arrastraba.
+        self.seccion_objetivo = ""
         self.seccion = ""          # la seccion que se eligio en este intento
         self.sin_secciones = False  # el paso de seccion no tenia ninguna elegible
+        self.secciones_vistas = []  # estado de cada fila del ultimo paso de seccion
 
     def texto(self):
         try:
@@ -546,6 +558,15 @@ class PaginaSelenium:
         Si ninguna la nombra (p. ej. "back"), vale la primera libre.
         """
         filas = self.driver.execute_script(JS_SECCIONES) or []
+        self.secciones_vistas = [f"{f['texto']}:{'libre' if f['libre'] else 'no'}" for f in filas]
+        if self.seccion_objetivo:
+            # Reintento de la misma seccion: tras recargar vuelve a estar libre. Si no esta, no se
+            # salta a otra con la cantidad rebajada: se da por fallida y el bucle de pestanas la excluye.
+            for fila in filas:
+                if fila["libre"] and fila["texto"] == self.seccion_objetivo:
+                    self.seccion = fila["texto"]
+                    return fila["el"]
+            return None
         claves = [c for c in (_normalizar(k) for k in self.claves_seccion) if c]
         coinciden = [f for f in filas if any(c in _normalizar(f["texto"]) for c in claves)]
         for fila in (coinciden or filas):
@@ -588,11 +609,12 @@ class PaginaSelenium:
         self.esperar(lambda t: AVISO_LIMITE not in t, ESPERA_RESPUESTA)
 
     def limpiar(self):
-        # Se deshace la seleccion desde la propia pagina; recargar es el ultimo recurso.
-        # Tras "No hay asientos libres" el "Limpiar seleccion" no hace nada (visto en vivo):
-        # lo que devuelve a los sectores es el enlace "elige otra seccion".
-        for texto in ("elige otra sección", "Limpiar selección"):
-            if self.clic(texto) and \
-                    self.esperar(lambda t: "Seleccionar sector" in t, ESPERA_RESPUESTA) is not None:
-                return True
+        """
+        Vuelve al mapa recargando la pagina.
+
+        Tras un rechazo la seccion desaparece de la lista y la unica forma de reactivarla es
+        recargar (Aldemar). "elige otra seccion" no la restaura, y "Limpiar seleccion" abre el
+        dialogo "Estas seguro que quieres cancelar la seleccion?", que quedaba abierto en las
+        pestanas con rechazo. Recargar tiene el costo de una carga mas, solo tras un rechazo.
+        """
         return self.abrir_mapa()

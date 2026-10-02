@@ -197,6 +197,32 @@ toca ningún medio de pago ni escribe datos de tarjeta.
   sin `max_reservas` (=1) es una sola reserva. Cada localidad ya reservada tiene su propio
   enfriamiento de 10 min (`_RESERVADOS`) y todo el intento tiene un tope de
   `TIEMPO_MAXIMO_RESERVAS` (300 s): el monitor no revisa nada más mientras reserva.
+- **Por qué a veces da 3 y no 4 (SIN RESOLVER)** (Calvin Harris, 2-oct-2026). Hechos:
+  - Calvin **no valida la cantidad** (el "+" deja pedir 4 aunque haya menos; Iron Maiden sí
+    se frena) y "Buscar mejores asientos" solo busca asientos **juntos**: si no hay N
+    seguidos dice "No hay asientos libres", aunque haya sueltos. Con 1 sí hay mapa.
+  - Dos veces seguidas el bot dio **4 + 3 + 3** y dejó la 118 como no disponible (`118:no`),
+    aunque Aldemar ve 4 juntos en la 119 y la 120. A mano, con casi un minuto entre
+    reservas, cada sección dio 4, también reservando antes la 117 y con otras reservas
+    vivas en la misma sesión.
+  - **Hipótesis descartadas** (todas contra la página real): pasarse del tope (el 5º clic;
+    con `maximo 4` siguió igual), el orden (117 primero), que las reservas simultáneas se
+    estorben, el ritmo (con `PAUSA_ENTRE_RESERVAS` = 5 s, ~10 s entre reservas, salió igual
+    4+3+3) y que una reserva *confirmada* hasta el pago afecte a las siguientes (a mano:
+    117 confirmada y luego 119 con 4 → dio 4, y la 118 seguía libre).
+  - **Lo único que cambia es el navegador**: a mano, en el Comet de uso diario (con la
+    extensión), todo da 4 y la 118 sale libre; en el Comet de reserva (perfil
+    `C:\selenium\CometProfile`, controlado por Selenium) sale 4+3+3 y `118:no`, siempre igual
+    (3 ejecuciones). Candidatos sin probar: detección de automatización (`navigator.webdriver`,
+    depuración remota) con degradación de la disponibilidad, o una cuenta/perfil distintos.
+    Prueba decisiva: hacer a mano, SIN el bot, las mismas reservas en la ventana del Comet de
+    reserva. Si da 4+4+4 es la automatización; si da 4+3+3 es el perfil/cuenta.
+  - El reintento "sin pasarse del tope" de `_reservar_sector()` nació de la hipótesis
+    descartada; es inofensivo pero su motivo no se confirmó.
+- **El mapa de asientos es un `<canvas>`** (los asientos no son elementos de la página;
+  `window.seat` está vacío): completar a mano pulsando asientos exigiría calcular píxeles.
+  Está descartado por ahora. Desde el mapa, pulsar una sección salta directo a la cantidad
+  (se ahorran los dos pasos de la lista); no se ha automatizado.
 - Hay **dos botones "Continuar"** en la pantalla de selección y uno no hace nada:
   de ahí el "primer clic perdido". Hay un único reintento de clic por pantalla, nunca
   una recarga. Además hay un "Continuar" de un diálogo oculto (cuenta creada).

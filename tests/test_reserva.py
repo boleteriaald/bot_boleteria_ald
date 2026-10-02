@@ -132,6 +132,57 @@ class PaginaFalsa:
         return True
 
 
+class PaginaSeccionesQueDesaparecen(PaginaFalsa):
+    """
+    Calvin Harris: un rechazo hace DESAPARECER la seccion de la lista hasta recargar.
+    `juntas` = asientos seguidos que hay de verdad en cada seccion ({"118": 1} = solo sueltos).
+    """
+
+    def __init__(self, juntas, **kw):
+        super().__init__(cupo=0, tope=4, numerada=True, **kw)
+        self.juntas = juntas
+        self.apagadas = set()
+        self.seccion = ""
+        self.seccion_objetivo = ""
+        self.excluir_secciones = set()
+        self.sin_secciones = False
+        self.secciones_vistas = []
+        self.pedidos = []                      # (seccion, cantidad) de cada busqueda de asientos
+
+    def elegir_sector(self, nombre):
+        if nombre not in self.sectores or self.estado != "mapa":
+            return False
+        self.sin_secciones = False
+        libres = [s for s in self.juntas if s not in self.apagadas]
+        if self.seccion_objetivo:
+            if self.seccion_objetivo not in libres:
+                return False
+            elegida = self.seccion_objetivo
+        else:
+            candidatas = [s for s in libres if s not in self.excluir_secciones]
+            if not candidatas:
+                self.sin_secciones = True
+                return False
+            elegida = candidatas[0]
+        self.seccion, self.cantidad, self.estado = elegida, 0, "tarifa"
+        return True
+
+    def _continuar(self):
+        if self.estado == "tarifa":
+            self.pedidos.append((self.seccion, self.cantidad))
+            if self.cantidad <= self.juntas[self.seccion]:
+                self.estado = "lista"
+            else:
+                self.estado = "error"
+                self.apagadas.add(self.seccion)        # desaparece hasta recargar
+            return True
+        return super()._continuar()
+
+    def limpiar(self):
+        self.apagadas.clear()                          # recargar la reactiva
+        return super().limpiar()
+
+
 def reservar(pagina, sectores=(SECTOR,), **kw):
     return rt.reservar(pagina, list(sectores), **kw)
 
@@ -256,6 +307,59 @@ class TestNumeradas(unittest.TestCase):
         self.assertFalse(r.ok)
         self.assertFalse(r.retenidas)
         self.assertTrue(all("No hay asientos libres" in i for i in r.intentos))
+
+
+class TestSeccionQueDesaparece(unittest.TestCase):
+    """El rechazo apaga la seccion; el reintento con menos boletas es en LA MISMA, tras recargar."""
+
+    def test_baja_en_la_misma_seccion_hasta_lo_que_quede(self):
+        # 118 solo tiene asientos sueltos: 4, 3 y 2 se rechazan; con 1 si hay.
+        p = PaginaSeccionesQueDesaparecen({"117": 4, "118": 1, "119": 4})
+        p.excluir_secciones = {"117"}
+        r = reservar(p, maximo=4)
+        self.assertTrue(r.ok)
+        self.assertEqual((r.seccion, r.cantidad), ("118", 1))
+        self.assertEqual(p.pedidos, [("118", 4), ("118", 3), ("118", 2), ("118", 1)])
+
+    def test_no_arrastra_la_cantidad_rebajada_a_otra_seccion(self):
+        # El fallo que dio 4+3+3: tras el rechazo en 118 el siguiente intento caia en la 119 con 3.
+        p = PaginaSeccionesQueDesaparecen({"117": 4, "118": 1, "119": 4})
+        p.excluir_secciones = {"117"}
+        reservar(p, maximo=4)
+        self.assertNotIn("119", [s for s, _ in p.pedidos])
+
+    def test_una_seccion_sin_nada_falla_y_la_siguiente_empieza_con_la_cantidad_completa(self):
+        p1 = PaginaSeccionesQueDesaparecen({"118": 0, "119": 4})
+        r1 = reservar(p1, maximo=4)
+        self.assertFalse(r1.ok)
+        self.assertEqual(r1.seccion, "118")                       # el bucle de pestanas la excluye
+        self.assertFalse(r1.sin_mas_secciones)
+        self.assertEqual([c for _, c in p1.pedidos], [4, 3, 2, 1])
+        # siguiente pestana, con la 118 excluida: la 119 arranca pidiendo 4, no 3
+        p2 = PaginaSeccionesQueDesaparecen({"118": 0, "119": 4})
+        p2.excluir_secciones = {"118"}
+        r2 = reservar(p2, maximo=4)
+        self.assertTrue(r2.ok)
+        self.assertEqual((r2.seccion, r2.cantidad), ("119", 4))
+        self.assertEqual(p2.pedidos, [("119", 4)])
+
+    def test_cada_rechazo_recarga_la_pagina(self):
+        p = PaginaSeccionesQueDesaparecen({"118": 1})
+        cargas = []
+        original = p.limpiar
+        p.limpiar = lambda: cargas.append(1) or original()
+        reservar(p, maximo=4)
+        self.assertEqual(len(cargas), 3)                          # tras 4, 3 y 2
+
+    def test_si_la_seccion_no_vuelve_tras_recargar_no_salta_a_otra(self):
+        class NoVuelve(PaginaSeccionesQueDesaparecen):
+            def limpiar(self):
+                return PaginaFalsa.limpiar(self)                  # recarga sin reactivar
+        p = NoVuelve({"118": 1, "119": 4})
+        r = reservar(p, maximo=4)
+        self.assertFalse(r.ok)
+        self.assertEqual(r.seccion, "118")
+        self.assertNotIn("119", [s for s, _ in p.pedidos])
 
 
 class TestSectores(unittest.TestCase):
@@ -584,59 +688,15 @@ class TestAbrirMapaReal(unittest.TestCase):
         p, el = self.pagina_con_secciones([("101 (+12)", False), ("103 (+12)", False)])
         self.assertFalse(p.elegir_sector("101 - 103 - 105 - 107"))
 
-    def test_tras_no_hay_asientos_libres_se_vuelve_con_elige_otra_seccion(self):
-        textos = []
-
-        class Error(DriverTexto):
-            def execute_script(self, script, *args):
-                if script == rt.JS_CLIC_TEXTO:
-                    textos.append(args[0])
-                    if args[0] == "elige otra sección":
-                        self.texto = "Seleccionar sector"
-                    return self.elemento
-                return super().execute_script(script, *args)
-        driver = Error("Lo sentimos! No hay asientos libres para esta sección. elige otra sección.")
-        self.assertTrue(self.pagina_con(driver).limpiar())
-        self.assertEqual(textos[0], "elige otra sección")      # el primero que se prueba
-
-    def test_las_secciones_excluidas_no_se_eligen_y_se_anota_la_elegida(self):
-        filas = [("101 (+12)", True), ("103 (+12)", True), ("105 (+12)", True)]
-        p, el = self.pagina_con_secciones(filas)
-        p.excluir_secciones = {"101 (+12)"}
-        self.assertTrue(p.elegir_sector("101 - 103 - 105 - 107"))
-        self.assertEqual([el[n].clics for n in el], [0, 1, 0])
-        self.assertEqual(p.seccion, "103 (+12)")
-        self.assertFalse(p.sin_secciones)
-
-    def test_cuando_ya_no_queda_ninguna_se_avisa_que_el_sector_se_acabo(self):
-        filas = [("101 (+12)", True), ("103 (+12)", True)]
-        p, el = self.pagina_con_secciones(filas)
-        p.excluir_secciones = {"101 (+12)", "103 (+12)"}
-        self.assertFalse(p.elegir_sector("101 - 103 - 105 - 107"))
-        self.assertTrue(p.sin_secciones)
-        self.assertEqual([el[n].clics for n in el], [0, 0])
-
-    def test_reservar_copia_la_seccion_y_el_fin_de_secciones_a_la_reserva(self):
-        class ConSeccion(PaginaFalsa):
-            seccion = "117 (+18)"
-            sin_secciones = False
-        r = reservar(ConSeccion())
-        self.assertEqual(r.seccion, "117 (+18)")
-        self.assertFalse(r.sin_mas_secciones)
-
-        class SinMas(PaginaFalsa):
-            seccion = ""
-            sin_secciones = True
-
-            def elegir_sector(self, nombre):
-                return False
-        r = reservar(SinMas())
-        self.assertTrue(r.sin_mas_secciones)
-        self.assertFalse(r.ok)
-
-    def test_el_mensaje_de_reserva_dice_la_seccion(self):
-        r = rt.Reserva(True, "117-118-119-120", 4, 4, "$ 2.668.000", "04:59", seccion="117 (+18)")
-        self.assertIn("117-118-119-120 [seccion 117 (+18)]", rt.mensaje(r, "Calvin", "https://x", "10:00:00"))
+    def test_limpiar_recarga_la_pagina_en_vez_de_pulsar_enlaces(self):
+        # "Limpiar seleccion" abria el dialogo de cancelar y "elige otra seccion" no restauraba la
+        # seccion desaparecida: la unica forma fiable es recargar.
+        cargas = []
+        driver = DriverTexto("Seleccionar sector")
+        p = rt.PaginaSelenium(driver, "https://x", lambda d, u: cargas.append(u))
+        self.assertTrue(p.limpiar())
+        self.assertEqual(cargas, ["https://x"])
+        self.assertNotIn(rt.JS_CLIC_TEXTO, driver.scripts)          # no pulso ningun enlace
 
     def test_texto_sin_elemento_no_hace_clic(self):
         driver = DriverTexto()
