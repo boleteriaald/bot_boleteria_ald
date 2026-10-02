@@ -188,7 +188,12 @@ toca ningún medio de pago ni escribe datos de tarjeta.
   contador, hasta la pantalla de pago (probó 3 localidades distintas). Por eso
   `"max_reservas": N` reserva una localidad por pestaña hasta N (BTS e Iron Maiden: 8);
   las fallidas no cuentan, con menos sectores que N se reservan los que haya, y el
-  usuario decide cuál pagar (las demás vencen solas). Va en `_reservar_varias()`;
+  usuario decide cuál pagar (las demás vencen solas). **Cada sección libre de un sector
+  numerado es una reserva distinta** (Calvin Harris: el sector "117-118-119-120" son 4
+  secciones = 4 pestañas, no una): la pestaña toma la primera sección libre que no esté
+  en `excluir_secciones`, y el bucle sigue con otra pestaña hasta que la página no tenga
+  más (`Reserva.sin_mas_secciones`, que no es un fallo) o se llegue al tope
+  (`MAX_INTENTOS_POR_SECTOR` = 12 como cota). Va en `_reservar_varias()`;
   sin `max_reservas` (=1) es una sola reserva. Cada localidad ya reservada tiene su propio
   enfriamiento de 10 min (`_RESERVADOS`) y todo el intento tiene un tope de
   `TIEMPO_MAXIMO_RESERVAS` (300 s): el monitor no revisa nada más mientras reserva.
