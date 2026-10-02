@@ -53,6 +53,7 @@ class Base(CasoMonitor):
         self.m._NAVEGADOR_RESERVA.clear()
         self.llamadas = []
         self.paginas = []
+        self.exclusiones = []   # secciones excluidas que recibio cada llamada
         self.resultado = rt.Reserva(True, SECTOR, 4, 4, "$ 1.527.000", "04:52")
         self.lanza = None
         self.cola = []          # resultados de las proximas llamadas, en orden
@@ -60,6 +61,7 @@ class Base(CasoMonitor):
 
         def reservar(pagina, sectores, maximo=4, minimo=1, reloj=None):
             self.llamadas.append((list(sectores), maximo))
+            self.exclusiones.append(set(getattr(pagina, "excluir_secciones", set())))
             self.reloj.ahora += self.tarda
             if self.lanza:
                 raise self.lanza
@@ -206,6 +208,18 @@ def fallo(sector):
     return rt.Reserva(False, sector, detalle="no hay boletas ni para 1")
 
 
+def listo_sec(sector, seccion):
+    return rt.Reserva(True, sector, 4, 4, "$ 2.668.000", "04:59", seccion=seccion)
+
+
+def fallo_sec(sector, seccion):
+    return rt.Reserva(False, sector, detalle="no hay asientos libres", seccion=seccion)
+
+
+def sin_mas(sector):
+    return rt.Reserva(False, sector, detalle="el sector no aparece o no se pudo abrir", sin_mas_secciones=True)
+
+
 class TestVariasReservas(Base):
     """max_reservas > 1: una localidad por pestana, hasta el tope o hasta agotar la lista."""
 
@@ -305,6 +319,98 @@ class TestVariasReservas(Base):
         self.assertEqual(self.llamadas, [])
         self.assertEqual(len(self.enviados), 1)
         self.assertIn("iniciar_comet_debug.bat", self.enviados[0])
+
+
+class TestSeccionesComoReservas(Base):
+    """Un sector numerado agrupa secciones (117, 119, 121, 123): cada libre es una reserva y una pestana."""
+
+    GRUPO = "117 - 119 - 121 - 123"
+
+    def setUp(self):
+        super().setUp()
+        self.m.RESERVAR_TICKETMASTER = {BTS: {"maximo": 4, "max_reservas": 8}}
+
+    def lanzar(self, catalogo=None):
+        d = DriverFalso()
+        self.m.intentar_reserva(d, BTS, catalogo or [self.GRUPO], "Calvin Harris")
+        return d
+
+    def test_cada_seccion_libre_es_una_reserva_en_su_propia_pestana(self):
+        g = self.GRUPO
+        self.cola = [listo_sec(g, "117 (+18)"), listo_sec(g, "119 (+18)"), listo_sec(g, "121 (+18)"),
+                     listo_sec(g, "123 (+18)"), sin_mas(g)]
+        d = self.lanzar()
+        self.assertEqual(len(self.llamadas), 5)                         # 4 secciones + la que ya no queda
+        self.assertEqual(sum(1 for e in d.eventos if e[0] == "nueva"), 5)
+        # cada pestana recibe las secciones ya hechas, para tomar otra
+        self.assertEqual(self.exclusiones[0], set())
+        self.assertEqual(self.exclusiones[1], {"117 (+18)"})
+        self.assertEqual(self.exclusiones[4], {"117 (+18)", "119 (+18)", "121 (+18)", "123 (+18)"})
+        self.assertEqual(sum("RESERVA LISTA" in e for e in self.enviados), 4)
+        self.assertEqual(sum("NO PUDE RESERVAR" in e for e in self.enviados), 0)   # el fin del sector no es un fallo
+        self.assertIn("4 RESERVA(S) LISTA(S)", self.enviados[-1])
+        self.assertIn(("cerrada", "reserva"), d.eventos)                          # la ultima pestana vacia se cierra
+
+    def test_los_mensajes_dicen_que_seccion_es_cada_una(self):
+        g = self.GRUPO
+        self.cola = [listo_sec(g, "117 (+18)"), listo_sec(g, "119 (+18)"), sin_mas(g)]
+        self.lanzar()
+        self.assertIn("117 (+18)", self.enviados[0])
+        self.assertIn("119 (+18)", self.enviados[1])
+        self.assertIn("117 (+18)", self.enviados[-1])
+        self.assertIn("119 (+18)", self.enviados[-1])
+
+    def test_el_tope_corta_aunque_queden_secciones(self):
+        self.m.RESERVAR_TICKETMASTER = {BTS: {"maximo": 4, "max_reservas": 2}}
+        g = self.GRUPO
+        self.cola = [listo_sec(g, f"{n} (+18)") for n in (117, 119, 121, 123)]
+        self.lanzar()
+        self.assertEqual(len(self.llamadas), 2)
+
+    def test_las_secciones_cuentan_para_el_tope_junto_con_otros_sectores(self):
+        self.m.RESERVAR_TICKETMASTER = {BTS: {"maximo": 4, "max_reservas": 3}}
+        g = self.GRUPO
+        # El grupo da 2 secciones, la pagina dice que no hay mas, y entonces sigue Back Field (la 3a).
+        self.cola = [listo_sec(g, "117 (+18)"), listo_sec(g, "119 (+18)"), sin_mas(g), listo("Back Field")]
+        self.lanzar([g, "Back Field", "Otro"])
+        self.assertEqual([c[0][0] for c in self.llamadas], [g, g, g, "Back Field"])
+        self.assertEqual(sum("RESERVA LISTA" in e for e in self.enviados), 3)
+
+    def test_una_seccion_que_falla_se_excluye_y_se_prueba_la_siguiente(self):
+        g = self.GRUPO
+        self.cola = [fallo_sec(g, "117 (+18)"), listo_sec(g, "119 (+18)"), sin_mas(g)]
+        self.lanzar()
+        self.assertEqual(len(self.llamadas), 3)
+        self.assertEqual(self.exclusiones[1], {"117 (+18)"})            # no insiste con la que fallo
+        self.assertEqual(sum("RESERVA LISTA" in e for e in self.enviados), 1)
+
+    def test_un_sector_sin_secciones_se_reserva_una_sola_vez(self):
+        self.cola = [listo("Back Field")]
+        self.lanzar(["Back Field"])
+        self.assertEqual(len(self.llamadas), 1)
+
+    def test_las_secciones_ya_reservadas_no_se_repiten_en_otra_deteccion(self):
+        g = self.GRUPO
+        self.cola = [listo_sec(g, "117 (+18)"), sin_mas(g)]
+        self.lanzar()
+        self.llamadas.clear()
+        self.exclusiones.clear()
+        self.cola = [listo_sec(g, "119 (+18)"), sin_mas(g)]             # aparece otra seccion despues
+        self.lanzar()
+        self.assertEqual(self.exclusiones[0], {"117 (+18)"})            # la 117 ya estaba hecha
+
+    def test_cota_de_pestanas_por_sector(self):
+        self.m.RESERVAR_TICKETMASTER = {BTS: {"maximo": 4, "max_reservas": 99}}
+        g = self.GRUPO
+        self.cola = [fallo_sec(g, f"{n} (+18)") for n in range(100)]
+        self.lanzar()
+        self.assertEqual(len(self.llamadas), self.m.MAX_INTENTOS_POR_SECTOR)
+
+    def test_con_una_sola_reserva_sigue_siendo_la_primera_seccion(self):
+        self.m.RESERVAR_TICKETMASTER = {BTS: {"maximo": 4}}              # max_reservas = 1
+        self.cola = [listo_sec(self.GRUPO, "117 (+18)")]
+        self.lanzar()
+        self.assertEqual(len(self.llamadas), 1)
 
 
 class TestNavegadorDeReserva(Base):

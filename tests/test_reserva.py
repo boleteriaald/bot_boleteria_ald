@@ -599,6 +599,45 @@ class TestAbrirMapaReal(unittest.TestCase):
         self.assertTrue(self.pagina_con(driver).limpiar())
         self.assertEqual(textos[0], "elige otra sección")      # el primero que se prueba
 
+    def test_las_secciones_excluidas_no_se_eligen_y_se_anota_la_elegida(self):
+        filas = [("101 (+12)", True), ("103 (+12)", True), ("105 (+12)", True)]
+        p, el = self.pagina_con_secciones(filas)
+        p.excluir_secciones = {"101 (+12)"}
+        self.assertTrue(p.elegir_sector("101 - 103 - 105 - 107"))
+        self.assertEqual([el[n].clics for n in el], [0, 1, 0])
+        self.assertEqual(p.seccion, "103 (+12)")
+        self.assertFalse(p.sin_secciones)
+
+    def test_cuando_ya_no_queda_ninguna_se_avisa_que_el_sector_se_acabo(self):
+        filas = [("101 (+12)", True), ("103 (+12)", True)]
+        p, el = self.pagina_con_secciones(filas)
+        p.excluir_secciones = {"101 (+12)", "103 (+12)"}
+        self.assertFalse(p.elegir_sector("101 - 103 - 105 - 107"))
+        self.assertTrue(p.sin_secciones)
+        self.assertEqual([el[n].clics for n in el], [0, 0])
+
+    def test_reservar_copia_la_seccion_y_el_fin_de_secciones_a_la_reserva(self):
+        class ConSeccion(PaginaFalsa):
+            seccion = "117 (+18)"
+            sin_secciones = False
+        r = reservar(ConSeccion())
+        self.assertEqual(r.seccion, "117 (+18)")
+        self.assertFalse(r.sin_mas_secciones)
+
+        class SinMas(PaginaFalsa):
+            seccion = ""
+            sin_secciones = True
+
+            def elegir_sector(self, nombre):
+                return False
+        r = reservar(SinMas())
+        self.assertTrue(r.sin_mas_secciones)
+        self.assertFalse(r.ok)
+
+    def test_el_mensaje_de_reserva_dice_la_seccion(self):
+        r = rt.Reserva(True, "117-118-119-120", 4, 4, "$ 2.668.000", "04:59", seccion="117 (+18)")
+        self.assertIn("117-118-119-120 [seccion 117 (+18)]", rt.mensaje(r, "Calvin", "https://x", "10:00:00"))
+
     def test_texto_sin_elemento_no_hace_clic(self):
         driver = DriverTexto()
         driver.elemento = None

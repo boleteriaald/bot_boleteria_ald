@@ -80,6 +80,8 @@ class Reserva:
     retenidas: bool = False  # hay boletas retenidas aunque no se llegara al pago
     conservar_pestana: bool = False  # no cerrar la pestana (p. ej. esta en una fila de Queue-it)
     intentos: list = field(default_factory=list)  # ['4: rechazada [texto de la pagina]', '3: ok']
+    seccion: str = ""            # seccion elegida dentro de un sector numerado ("117 (+18)")
+    sin_mas_secciones: bool = False  # el sector numerado no tenia mas secciones por reservar
 
 
 def _sin_acentos(texto):
@@ -233,6 +235,8 @@ def reservar(pagina, sectores, maximo=MAXIMO_POR_LOCALIDAD, minimo=1, reloj=time
     ultimo = Reserva(False, detalle="sin sectores que reservar")
     for sector in sectores:
         ultimo = _reservar_sector(pagina, sector, maximo, minimo, limite, reloj)
+        ultimo.seccion = getattr(pagina, "seccion", "")
+        ultimo.sin_mas_secciones = bool(getattr(pagina, "sin_secciones", False))
         if ultimo.ok or ultimo.retenidas or reloj() > limite:
             break
     return ultimo
@@ -254,7 +258,7 @@ def mensaje_resumen(reservas, evento, url, hora):
         return f"⚠️ NINGUNA RESERVA LISTA\n\n📌 {evento}\nSe intentaron {len(reservas)}, ninguna se pudo.\n🔗 {url}\n\n⏰ {hora}"
     texto = f"🎟️ {len(listas)} RESERVA(S) LISTA(S) - ELIGE CUAL PAGAR\n\n📌 {evento}\n"
     for r in listas:
-        texto += f"  • {r.cantidad} x {r.sector}" + (f" - {r.total}" if r.total else "") + (f" (vence en {r.expira})" if r.expira else "") + "\n"
+        texto += f"  • {r.cantidad} x {r.sector}" + (f" [{r.seccion}]" if r.seccion else "") + (f" - {r.total}" if r.total else "") + (f" (vence en {r.expira})" if r.expira else "") + "\n"
     fallidas = len(reservas) - len(listas)
     if fallidas:
         texto += f"({fallidas} no se pudieron reservar)\n"
@@ -266,7 +270,7 @@ def mensaje(reserva, evento, url, hora):
     """Texto del aviso de Telegram con el resultado de la reserva."""
     if reserva.ok:
         texto = (f"🎟️ RESERVA LISTA - ENTRA A PAGAR\n\n📌 {evento}\n"
-                 f"  • {reserva.cantidad} x {reserva.sector}\n")
+                 f"  • {reserva.cantidad} x {reserva.sector}" + (f" [seccion {reserva.seccion}]" if reserva.seccion else "") + "\n")
         if reserva.cantidad < reserva.pedidas:
             texto += f"  • Solo se pudieron reservar {reserva.cantidad} de {reserva.pedidas}\n"
             texto += f"  • {_resumen_intentos(reserva)}\n"
@@ -278,7 +282,7 @@ def mensaje(reserva, evento, url, hora):
                 f"🔗 {url}\n\n⏰ {hora}")
     texto = f"⚠️ NO PUDE RESERVAR\n\n📌 {evento}\n"
     if reserva.sector:
-        texto += f"  • {reserva.sector}\n"
+        texto += f"  • {reserva.sector}" + (f" [seccion {reserva.seccion}]" if reserva.seccion else "") + "\n"
     texto += f"Motivo: {reserva.detalle}\n"
     if len(reserva.intentos) > 1:
         texto += f"{_resumen_intentos(reserva)}\n"
@@ -408,6 +412,11 @@ class PaginaSelenium:
         # Palabras de RESERVAR_TICKETMASTER["sectores"]: si una nombra una SECCION del sector
         # numerado (p. ej. "107" dentro de "101 - 103 - 105 - 107"), solo se reserva esa.
         self.claves_seccion = []
+        # Secciones (normalizadas) que NO se deben elegir: las ya reservadas en este sector.
+        # Asi cada seccion libre es su propia reserva, en su propia pestana.
+        self.excluir_secciones = set()
+        self.seccion = ""          # la seccion que se eligio en este intento
+        self.sin_secciones = False  # el paso de seccion no tenia ninguna elegible
 
     def texto(self):
         try:
@@ -515,6 +524,8 @@ class PaginaSelenium:
         return True
 
     def elegir_sector(self, nombre):
+        self.seccion = ""
+        self.sin_secciones = False
         if not self._clic_elemento(lambda: self.driver.execute_script(JS_ELEGIR_SECTOR, nombre)):
             return False
         t = self.esperar(lambda t: "Seleccionar tarifa" in t or "Seleccionar sección" in t, ESPERA_PASO)
@@ -538,8 +549,10 @@ class PaginaSelenium:
         claves = [c for c in (_normalizar(k) for k in self.claves_seccion) if c]
         coinciden = [f for f in filas if any(c in _normalizar(f["texto"]) for c in claves)]
         for fila in (coinciden or filas):
-            if fila["libre"]:
+            if fila["libre"] and _normalizar(fila["texto"]) not in self.excluir_secciones:
+                self.seccion = fila["texto"]
                 return fila["el"]
+        self.sin_secciones = True     # no queda ninguna por reservar en este sector
         return None
 
     def _cantidad(self, texto=None):

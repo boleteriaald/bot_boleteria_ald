@@ -76,10 +76,14 @@ def preparar_consola():
 
 URLS_A_MONITOREAR = [
 
-    "https://www.ticketmaster.co/event/iron-maiden-venta-general",
-
-    # VIVES PRUEBA
-    "https://www.ticketmaster.co/event/carlos-vives-bucaramanga-venta-general",
+    # "https://www.ticketmaster.co/event/mejor-tarde-que-nunca-romeo-santos-prince-royce-venta-general",
+    #
+    # "https://www.ticketmaster.co/event/bunbury-nuevas-mutaciones-tour-2026-cali",
+    #
+    # "https://www.ticketmaster.co/event/iron-maiden-venta-general",
+    #
+    # # VIVES PRUEBA
+    # "https://www.ticketmaster.co/event/carlos-vives-bucaramanga-venta-general",
 
     # POSADA
     # "https://tbpgpal.checkout.tuboleta.com/selection/event/seat?perfId=10230520476167&table=1&productId=10230521336971",
@@ -1712,24 +1716,32 @@ RESERVA_PUERTO_DEPURACION = 9223
 
 RESERVAR_TICKETMASTER = {
 
-    "https://www.ticketmaster.co/event/calvin-harris-venta-general":
-        {"maximo": 6, "max_reservas": 8},
-
-    "https://www.ticketmaster.co/event/carlos-vives-bucaramanga-venta-general": 4,
+    # "https://www.ticketmaster.co/event/mejor-tarde-que-nunca-romeo-santos-prince-royce-venta-general":
+    #     {"maximo": 8, "sectores": ["102", "104", "106"], "max_reservas": 8},
+    #
+    # "https://www.ticketmaster.co/event/calvin-harris-venta-general":
+    #     {"maximo": 8, "max_reservas": 8},
+    #
+    # "https://www.ticketmaster.co/event/bunbury-nuevas-mutaciones-tour-2026-cali":
+    #     {"maximo": 8, "max_reservas": 8},
+    #
+    # "https://www.ticketmaster.co/event/carlos-vives-bucaramanga-venta-general": 4,
 
     # IRON MAIDEN: Back Field es de entrada general; "107" nombra la SECCION 107 del sector
     # numerado "101 - 103 - 105 - 107" (el bot reserva esa seccion, no la primera libre).
     # Independiente de FILTROS_LOCALIDADES: aqui se decide que RESERVAR, alli de que AVISAR.
-    "https://www.ticketmaster.co/event/iron-maiden-venta-general":
-        {"maximo": 4, "sectores": ["back", "107", "front field sur", "111"]},
+    # "https://www.ticketmaster.co/event/iron-maiden-venta-general":
+    #     {"maximo": 4, "sectores": ["back", "107", "front field sur", "111"]},
 
     # BTS: solo VIP (GRAMILLA), la unica de entrada general; las demas son numeradas.
     # Se casa por la palabra "GRAMILLA", unica entre sus sectores, por si cambian los parentesis.
     # Army Membership no entra: pide el numero de membresia, lo pone el usuario.
     "https://www.ticketmaster.co/event/bts-world-tour-venta-general-viernes-2-octubre":
-        {"maximo": 4, "sectores": ["GRAMILLA"], "max_reservas": 8},
+        {"maximo": 4, "sectores": ["GRAMILLA", "VIP", "NORTE ALTA", "NORTE BAJA", "ORIENTAL NORTE BAJA", "ORIENTAL NORTE ALTA",
+                                   "SUR ALTA", "SUR BAJA", "ORIENTAL SUR ALTA"], "max_reservas": 8},
     "https://www.ticketmaster.co/event/bts-world-tour-venta-general-sabado-3-octubre":
-        {"maximo": 4, "sectores": ["GRAMILLA"], "max_reservas": 8},
+        {"maximo": 4, "sectores": ["GRAMILLA", "VIP", "NORTE ALTA", "NORTE BAJA", "ORIENTAL NORTE BAJA", "ORIENTAL NORTE ALTA",
+                                   "SUR ALTA", "SUR BAJA", "ORIENTAL SUR ALTA"], "max_reservas": 8},
 }
 
 # Un bloqueo persiste; avisar en cada ronda solo cambiaria un problema de
@@ -1903,7 +1915,7 @@ _ULTIMA_RESERVA = {}  # url -> hora de la ultima reserva (modo de una sola reser
 # Sufijo con el que la reserva guarda SU estado de sectores vistos en estado_notificaciones.json,
 # separado del de los avisos para que los dos filtros no se pisen.
 CLAVE_RESERVA = "@reserva"
-_RESERVADOS = {}  # (url, sector) -> hora de su ultima reserva (modo de varias reservas)
+_RESERVADOS = {}  # (url, sector, seccion) -> hora de su ultima reserva (modo de varias reservas)
 # Tope de tiempo para TODAS las reservas de una deteccion: el monitor no revisa nada mas
 # mientras reserva, y cada reserva retiene las boletas solo unos 5 minutos.
 TIEMPO_MAXIMO_RESERVAS = 300  # Segundos
@@ -1968,7 +1980,7 @@ def navegador_reserva(driver_monitor):
     return nuevo, None
 
 
-def _reserva_en_pestana(navegador, url, sectores, maximo, palabras):
+def _reserva_en_pestana(navegador, url, sectores, maximo, palabras, excluir=()):
     """
     Una reserva en una pestana nueva del navegador de reserva; devuelve la Reserva.
 
@@ -1983,6 +1995,7 @@ def _reserva_en_pestana(navegador, url, sectores, maximo, palabras):
         navegador.switch_to.new_window("tab")
         pagina = reserva_ticketmaster.PaginaSelenium(navegador, url, navegar)
         pagina.claves_seccion = palabras or []
+        pagina.excluir_secciones = set(excluir)
         reserva = reserva_ticketmaster.reservar(pagina, sectores, maximo=maximo)
         cerrar = not reserva.ok and not reserva.retenidas and not reserva.conservar_pestana
     except Exception as e:
@@ -2005,38 +2018,55 @@ def _avisar_reserva(reserva, nombre_evento, url):
     enviar_notificacion(reserva_ticketmaster.mensaje(reserva, nombre_evento, url, time.strftime('%H:%M:%S')))
 
 
+MAX_INTENTOS_POR_SECTOR = 12  # Tope de pestañas por sector numerado (cota de seguridad)
+
+
 def _reservar_varias(navegador, url, sectores, maximo, max_reservas, palabras, nombre_evento):
     """
-    Una reserva por localidad, cada una en su pestana, hasta max_reservas.
+    Una reserva por localidad, y por SECCION dentro de cada sector numerado, cada una en
+    su pestana, hasta max_reservas.
 
     Ticketmaster deja tener varias reservas vivas a la vez en la misma cuenta (verificado a
     mano con 3 pestanas): el usuario decide despues cual pagar y las demas vencen solas.
-    Se sigue el orden de prioridad de `sectores`; las que fallan no cuentan y se pasa a la
-    siguiente; si hay menos que max_reservas, se reservan las que haya.
+    Un sector numerado ("117 - 119 - 121 - 123") agrupa varias secciones libres; cada una
+    cuenta como una reserva distinta, no solo la primera. Se sigue el orden de prioridad
+    de `sectores`; las que fallan no cuentan y se pasa a la siguiente; si hay menos que
+    max_reservas, se reservan las que haya.
     """
     limite = time.time() + TIEMPO_MAXIMO_RESERVAS
     resultados = []
     exitos = 0
     for sector in sectores:
-        if exitos >= max_reservas:
-            break
-        if time.time() > limite:
-            log.warning(f"RESERVA: se acabo el tiempo ({TIEMPO_MAXIMO_RESERVAS}s) con {exitos} reserva(s) | {url}")
-            break
-        # Una localidad ya reservada hace poco no se repite (p. ej. si el aviso de Telegram
-        # fallo y el sector vuelve a contarse como nuevo), pero las demas si se reservan.
-        if time.time() - _RESERVADOS.get((url, sector), 0) < INTERVALO_RECORDATORIO:
+        # Secciones de este sector ya reservadas hace poco (p. ej. si el aviso de Telegram
+        # fallo y el sector vuelve a contarse como nuevo): no se repiten, las demas si.
+        excluidas = {sec for (u, sec_sector, sec), hora in _RESERVADOS.items()
+                     if u == url and sec_sector == sector and time.time() - hora < INTERVALO_RECORDATORIO}
+        if "" in excluidas:
+            # Localidad sin secciones (entrada general) reservada hace poco: no se repite.
             print(f"   🎟️ {sector}: ya reservada hace poco; no se repite")
             continue
+        intentos_sector = 0
+        while exitos < max_reservas and intentos_sector < MAX_INTENTOS_POR_SECTOR:
+            if time.time() > limite:
+                log.warning(f"RESERVA: se acabo el tiempo ({TIEMPO_MAXIMO_RESERVAS}s) con {exitos} reserva(s) | {url}")
+                break
+            intentos_sector += 1
+            print(f"   🎟️ Reservando {maximo} boleta(s) de {sector} ({exitos + 1}/{max_reservas})...")
+            log.warning(f"RESERVA: intentando [{sector}] (max {maximo}, {exitos}/{max_reservas} listas, "
+                        f"secciones ya hechas {sorted(excluidas)}) | {url}")
+            reserva = _reserva_en_pestana(navegador, url, [sector], maximo, palabras, excluidas)
 
-        print(f"   🎟️ Reservando {maximo} boleta(s) de {sector} ({exitos + 1}/{max_reservas})...")
-        log.warning(f"RESERVA: intentando [{sector}] (max {maximo}, {exitos}/{max_reservas} listas) | {url}")
-        reserva = _reserva_en_pestana(navegador, url, [sector], maximo, palabras)
-        if reserva.ok or reserva.retenidas:
-            _RESERVADOS[(url, sector)] = time.time()
-        exitos += 1 if reserva.ok else 0
-        resultados.append(reserva)
-        _avisar_reserva(reserva, nombre_evento, url)
+            if reserva.sin_mas_secciones and not reserva.ok:
+                break  # ya no quedaba ninguna seccion por reservar en este sector: no es un fallo
+            clave = reserva_ticketmaster._normalizar(reserva.seccion)
+            if reserva.ok or reserva.retenidas:
+                _RESERVADOS[(url, sector, clave)] = time.time()
+            exitos += 1 if reserva.ok else 0
+            resultados.append(reserva)
+            _avisar_reserva(reserva, nombre_evento, url)
+            if not reserva.seccion:
+                break  # sector sin secciones (entrada general), o fallo antes de elegir: una vez
+            excluidas.add(clave)  # esa seccion ya se intento: la siguiente pestana toma otra
 
     if len(resultados) > 1:
         enviar_notificacion(reserva_ticketmaster.mensaje_resumen(
