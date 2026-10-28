@@ -77,17 +77,33 @@ def preparar_consola():
 
 URLS_A_MONITOREAR = [
 
-    # "https://www.ticketmaster.co/event/mejor-tarde-que-nunca-romeo-santos-prince-royce-venta-general",
+    # ALCOLIRYCOZ
+    "https://tbpgpal.checkout.tuboleta.com/selection/event/date?productId=10230595471270",
+
+    # ALCOLIRYCOZ PASALA
+    "https://pasala.checkout.tuboleta.com/selection/resale/item?performanceId=10230595823557",
+
+    # REYKON DEL 6
+    # "https://tbpgpal.checkout.tuboleta.com/selection/event/seat?perfId=10230535645360&productId=10230513253147&lang=es",
+    "https://tbpgpal.checkout.tuboleta.com/selection/event/seat?perfId=10230535645360&table=1&productId=10230513253147",
     #
+    # REYKON DEL 7
+    # "https://tbpgpal.checkout.tuboleta.com/selection/event/seat?perfId=10230513254076&productId=10230513253147&lang=es",
+    "https://tbpgpal.checkout.tuboleta.com/selection/event/seat?perfId=10230513254076&table=1&productId=10230513253147",
+
+    # FUCK NEW MEDELLÍN
+    "https://appfreeticket.com/eventos/fucks-news-noticreo-medellin-medellin",
+
+    # SOLIS BUCARAMANGA
+    # "https://tbpgpal.checkout.tuboleta.com/selection/event/date?productId=10230542860592",
+    "https://tbpgpal.checkout.tuboleta.com/selection/event/seat?perfId=10230544136188&table=1&productId=10230542860592",
+
     # "https://www.ticketmaster.co/event/bunbury-nuevas-mutaciones-tour-2026-cali",
     #
     # "https://www.ticketmaster.co/event/iron-maiden-venta-general",
     #
     # # VIVES PRUEBA
     # "https://www.ticketmaster.co/event/carlos-vives-bucaramanga-venta-general",
-
-    # POSADA
-    # "https://tbpgpal.checkout.tuboleta.com/selection/event/seat?perfId=10230520476167&table=1&productId=10230521336971",
 
     # FUCK NEWS
     "https://tbpgpal.checkout.tuboleta.com/selection/event/date?productId=10230576245316",
@@ -105,24 +121,14 @@ URLS_A_MONITOREAR = [
     # "https://www.taquillalive.com/performance-details/?artist=westcol&event=TCL.EVN1440.PRF1",
     # "https://www.taquillalive.com/book-performance/?artist=westcol&event=TCL.EVN1440.PRF1",
 
-    # MANÁ
-    "https://www.ticketmaster.co/event/mana-2026-venta-general",
+    # # MANÁ
+    # "https://www.ticketmaster.co/event/mana-2026-venta-general",
 
     # ANUEL AA
     # "https://www.ticketmaster.co/event/anuel-aa-venta-general",
 
     # CALVIN HARIS
     "https://www.ticketmaster.co/event/calvin-harris-venta-general",
-
-    # BTS
-    # "https://www.ticketmaster.co/event/bts-world-tour-venta-general-viernes-2-octubre",
-    # "https://www.ticketmaster.co/event/bts-world-tour-venta-general-sabado-3-octubre",
-    # "https://www.ticketmaster.co/event/bts-world-tour-venta-general-sabado-3-octubre#",
-    # "https://www.ticketmaster.co/event/bts-world-tour-2026",
-    "https://www.ticketmaster.co/event/bts-world-tour-venta-general-viernes-2-octubre",
-    "https://www.ticketmaster.co/event/bts-world-tour-venta-general-sabado-3-octubre",
-    "https://www.ticketmaster.co/event/bts-world-tour-army-membership-viernes-2-octubre",
-    "https://www.ticketmaster.co/event/bts-world-tour-army-membership-sabado-3-octubre",
 
     # KAROL G DEL 4
     # "https://www.ticketmaster.co/event/karol-g-viajando-por-el-mundo-tropitour-venta-general",
@@ -133,10 +139,6 @@ URLS_A_MONITOREAR = [
 
     # CAMILO
     # "https://breakfast.checkout.tuboleta.com/selection/event/seat?perfId=10230441698792&table=1&productId=10230441698670",
-
-    # KRIS R FUNCIONAL
-    # "https://breakfast.checkout.tuboleta.com/selection/event/date?productId=10230387611599",
-    "https://breakfast.checkout.tuboleta.com/selection/event/seat?perfId=10230398494504&table=1&productId=10230387611599",
 
     # LOS CALIGARIS
     "https://tuboletapass4.checkout.tuboleta.com/selection/event/seat?perfId=10230442113890&table=1&productId=10230442107826",
@@ -158,14 +160,11 @@ URLS_A_MONITOREAR = [
     # "https://tbpgpal.checkout.tuboleta.com/selection/event/seat?perfId=10230398494504&table=1&productId=10230387611599",
 
     # DEFF LEPARD
-    # "https://tbpgpal.checkout.tuboleta.com/selection/event/seat?perfId=10230485786391&table=1&productId=10230485782854",
+    "https://tbpgpal.checkout.tuboleta.com/selection/event/seat?perfId=10230485786391&table=1&productId=10230485782854",
 
     # GORILLAZ
     "https://www.taquillalive.com/performance-details/?artist=gorillaz&event=TCL.EVN1152.PRF1",
     "https://www.taquillalive.com/book-performance/?artist=gorillaz&event=TCL.EVN1152.PRF1",
-
-    # RYAN CALI
-    # "https://breakfast.checkout.tuboleta.com/selection/event/seat?perfId=10230493240095&table=1&productId=10230493153527",
 
     # RYAN BOGOTÁ
     # "https://breakfast.checkout.tuboleta.com/selection/event/date?productId=10230451310131&_gl=1*4qwrrk*_gcl_au*MTI4ODU1NzA0Ni4xNzc2NjIyOTk5Ljc2MjAzMjQ3NC4xNzgzNTcwNzY2LjE3ODM1NzA3NjY.*_ga*MTk0NDE0NzkuMTc3NjYyMjk5OQ..*_ga_0TVTJ30NVQ*czE3ODM1NjQ3MDEkbzMkZzEkdDE3ODM1NzE2MjYkajUxJGwwJGgxMTI3OTc4Mzc3",
@@ -186,21 +185,35 @@ URLS_A_MONITOREAR = [
 
 FILTROS_LOCALIDADES = {
 
-    "https://www.ticketmaster.co/event/iron-maiden-venta-general":
-    # ["back", "107"],
-        ["front field sur", "111"],
+    # ALCOLIRYCOZ
+    "https://tbpgpal.checkout.tuboleta.com/selection/event/date?productId=10230595471270":
+        ["202", "206", "208", "302", "304", "305", "307", "TRIBUNA"],
 
-    # VIVES PRUEBA (solo el VIP normal: "VIP" a secas casaria tambien con los dos "Paquete VIP")
-    "https://www.ticketmaster.co/event/carlos-vives-bucaramanga-venta-general":
-        ["VIP (silletería no numerada)"],
+    # ALCOLIRYCOZ PASALA
+    "https://pasala.checkout.tuboleta.com/selection/resale/item?performanceId=10230595823557":
+        ["202", "206", "208", "302", "304",
+         # "305",
+         "307", "TRIBUNA"],
 
-    # FUCK NEWS
+    # REYKON DEL 6
+    # "https://tbpgpal.checkout.tuboleta.com/selection/event/seat?perfId=10230535645360&productId=10230513253147&lang=es",
+    "https://tbpgpal.checkout.tuboleta.com/selection/event/seat?perfId=10230535645360&table=1&productId=10230513253147":
+        ["202", "206", "208", "302", "304", "305", "307", "TRIBUNA"],
+
+    # REYKON DEL 7
+    # "https://tbpgpal.checkout.tuboleta.com/selection/event/seat?perfId=10230513254076&productId=10230513253147&lang=es",
+    "https://tbpgpal.checkout.tuboleta.com/selection/event/seat?perfId=10230513254076&table=1&productId=10230513253147":
+        ["202", "206", "208", "302", "304", "305", "307", "TRIBUNA"],
+
+    # SOLIS BUCARAMANGA
+    # "https://tbpgpal.checkout.tuboleta.com/selection/event/date?productId=10230542860592":
+    #     ["SUR", "NORTE"],
+    "https://tbpgpal.checkout.tuboleta.com/selection/event/seat?perfId=10230544136188&table=1&productId=10230542860592":
+        ["SUR", "NORTE"],
+
+    # FUCK NEWS bogotá
     "https://tbpgpal.checkout.tuboleta.com/selection/event/date?productId=10230576245316":
         ["PLATEA", "218", "209", "301", "BOLETAS"],
-
-    # POSADA
-    "https://tbpgpal.checkout.tuboleta.com/selection/event/seat?perfId=10230520476167&table=1&productId=10230521336971":
-        ["SEGUNDO PISO", "PISO 2"],
 
     # MARCO ANTONIO MEDELLIN
     # "https://tuboletapass.checkout.tuboleta.com/selection/event/date?productId=10230519581504",
@@ -215,9 +228,9 @@ FILTROS_LOCALIDADES = {
     # OMAR COURTZ 12--NOV
     # "https://tbpgpal.checkout.tuboleta.com/selection/event/seat?perfId=10230527903278&productId=10230523214255":
     "https://tbpgpal.checkout.tuboleta.com/selection/event/seat?perfId=10230527903278&table=1&productId=10230523214255":
-        ["TRIBUNA"
-         # "PLATEA"
-         ],
+        ["TRIBUNA",
+         "PLATEA",
+         "202", "206", "208", "302", "304", "305", "307"],
 
     # OMAR COURTZ 12--NOV
     "https://pasala.checkout.tuboleta.com/selection/resale/item?performanceId=10230527903278&productId=10230523214255&lang=es":
@@ -226,54 +239,44 @@ FILTROS_LOCALIDADES = {
     # OMAR COURTZ 13--NOV
     "https://tbpgpal.checkout.tuboleta.com/selection/event/seat?perfId=10230524219204&productId=10230523214255":
     # "https://tbpgpal.checkout.tuboleta.com/selection/event/seat?perfId=10230524219204&table=1&productId=10230523214255":
-        ["TRIBUNA"
-         # "PLATEA"
-         ],
+        ["TRIBUNA",
+         "PLATEA",
+         "202", "206", "208", "302", "304", "305", "307"],
 
     # OMAR COURTZ 13--NOV
     "https://pasala.checkout.tuboleta.com/selection/resale/item?performanceId=10230524219204&productId=10230523214255&lang=es":
         ["PLATEA"],
 
-    # KRIS R FUNCIONAL
-    # "https://breakfast.checkout.tuboleta.com/selection/event/date?productId=10230387611599",
-    "https://breakfast.checkout.tuboleta.com/selection/event/seat?perfId=10230398494504&table=1&productId=10230387611599":
-        ["TRIBUNA",
-         # "PLATEA",
-         "202", "206", "208", "302", "304", "305", "307"],
-
     # RYAN BOGOTÁ
     "https://breakfast.checkout.tuboleta.com/selection/event/seat?perfId=10230451311545&table=1&productId=10230451310131":
-        ["VIP", "OCCIDENTAL ALTA", "OCCIDENTAL BAJA", "ORIENTAL BAJA", "ORIENTAL ALTA", "SUR ALTA", "NORTE ALTA"],
-
-    # RYAN CALI
-    # "https://breakfast.checkout.tuboleta.com/selection/event/seat?perfId=10230493240095&table=1&productId=10230493153527":
-    #     [
-    #         "VIP OCCIDENTAL SANKA",
-    #         "VIP ORIENTAL SANKA",
-    #         "OCCIDENTAL 1ER PISO",
-    #         "OCCIDENTAL 2DO PISO",
-    #         "OCCIDENTAL 3ER PISO",
-    #         "ORIENTAL 1ER PISO",
-    #         "ORIENTAL 2DO PISO"],
+        [
+            "VIP",
+            # "OCCIDENTAL ALTA",
+            # "OCCIDENTAL BAJA",
+            # "ORIENTAL BAJA",
+            "ORIENTAL ALTA",
+            "SUR ALTA", "NORTE ALTA"],
 
     # CALVIN HARIS
     "https://www.ticketmaster.co/event/calvin-harris-venta-general":
         ["PLATEA 1", "PLATEA 2"],
 
-    # GORILLAZ
-    "https://www.taquillalive.com/performance-details/?artist=gorillaz&event=TCL.EVN1152.PRF1":
-        ["PLATEA 1", "PLATEA 2"],
-
-    "https://www.taquillalive.com/book-performance/?artist=gorillaz&event=TCL.EVN1152.PRF1":
-        ["PLATEA 1", "PLATEA 2"],
+    # # GORILLAZ
+    # "https://www.taquillalive.com/performance-details/?artist=gorillaz&event=TCL.EVN1152.PRF1":
+    #     ["PLATEA 1", "PLATEA 2"],
+    #
+    # "https://www.taquillalive.com/book-performance/?artist=gorillaz&event=TCL.EVN1152.PRF1":
+    #     ["PLATEA 1", "PLATEA 2"],
 
     # LOS CALIGARIS
     "https://tuboletapass4.checkout.tuboleta.com/selection/event/seat?perfId=10230442113890&table=1&productId=10230442107826":
         ["TRIBUNA", "PLATEA"],
 
     # DEFF LEPARD
-    # "https://tbpgpal.checkout.tuboleta.com/selection/event/seat?perfId=10230485786391&table=1&productId=10230485782854":
-    #     ["PISO 3"],
+    "https://tbpgpal.checkout.tuboleta.com/selection/event/seat?perfId=10230485786391&table=1&productId=10230485782854":
+        ["TRIBUNA",
+         "PLATEA",
+         "302", "306"],
 
     # CAMILO
     # "https://breakfast.checkout.tuboleta.com/selection/event/seat?perfId=10230441698792&table=1&productId=10230441698670":
@@ -1782,13 +1785,12 @@ RESERVAR_TICKETMASTER = {
     # "https://www.ticketmaster.co/event/mejor-tarde-que-nunca-romeo-santos-prince-royce-venta-general":
     #     {"maximo": 8, "sectores": ["102", "104", "106"], "max_reservas": 8},
     #
+
+    # "https://www.ticketmaster.co/event/mana-2026-venta-general":
+    #     {"maximo": 4, "max_reservas": 8, "sectores": ["101", "platea c", "preferencial"]},
+
     "https://www.ticketmaster.co/event/calvin-harris-venta-general":
         {"maximo": 4, "max_reservas": 8},
-
-    "https://www.ticketmaster.co/event/bunbury-nuevas-mutaciones-tour-2026-cali":
-        {"maximo": 4, "max_reservas": 8},
-
-    "https://www.ticketmaster.co/event/carlos-vives-bucaramanga-venta-general": 4,
 
     # IRON MAIDEN: Back Field es de entrada general; "107" nombra la SECCION 107 del sector
     # numerado "101 - 103 - 105 - 107" (el bot reserva esa seccion, no la primera libre).
@@ -1796,15 +1798,6 @@ RESERVAR_TICKETMASTER = {
     # "https://www.ticketmaster.co/event/iron-maiden-venta-general":
     #     {"maximo": 4, "sectores": ["back", "107", "front field sur", "111"]},
 
-    # BTS: solo VIP (GRAMILLA), la unica de entrada general; las demas son numeradas.
-    # Se casa por la palabra "GRAMILLA", unica entre sus sectores, por si cambian los parentesis.
-    # Army Membership no entra: pide el numero de membresia, lo pone el usuario.
-    "https://www.ticketmaster.co/event/bts-world-tour-venta-general-viernes-2-octubre":
-        {"maximo": 4, "sectores": ["GRAMILLA", "VIP", "NORTE ALTA", "NORTE BAJA", "ORIENTAL NORTE BAJA", "ORIENTAL NORTE ALTA",
-                                   "SUR ALTA", "SUR BAJA", "ORIENTAL SUR ALTA"], "max_reservas": 8},
-    "https://www.ticketmaster.co/event/bts-world-tour-venta-general-sabado-3-octubre":
-        {"maximo": 4, "sectores": ["GRAMILLA", "VIP", "NORTE ALTA", "NORTE BAJA", "ORIENTAL NORTE BAJA", "ORIENTAL NORTE ALTA",
-                                   "SUR ALTA", "SUR BAJA", "ORIENTAL SUR ALTA"], "max_reservas": 8},
 }
 
 # Reserva en Eleventickets (reserva_eleventickets.py): cuando un bloque que cumple aparece
