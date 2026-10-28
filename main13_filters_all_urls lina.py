@@ -20,6 +20,7 @@ from selenium.webdriver.support.ui import WebDriverWait
 from telegram import Bot
 from telegram.error import TelegramError
 
+import reserva_eleventickets
 import reserva_ticketmaster
 from config import TELEGRAM_BOT_TOKEN, TELEGRAM_CHAT_ID
 
@@ -171,6 +172,9 @@ URLS_A_MONITOREAR = [
     # "https://breakfast.checkout.tuboleta.com/selection/event/date?productId=10230451310131",
     "https://breakfast.checkout.tuboleta.com/selection/event/seat?perfId=10230451311545&table=1&productId=10230451310131",
 
+    # FINAL SUDAMERICANA (Eleventickets)
+    "https://sudamericana.eleventickets.com/#!/apresentacao/4bb1cb440b627393353ec181eb59a53056c9786c"
+
 ]
 
 # ============================================================
@@ -275,6 +279,12 @@ FILTROS_LOCALIDADES = {
     # "https://breakfast.checkout.tuboleta.com/selection/event/seat?perfId=10230441698792&table=1&productId=10230441698670":
     # # ["TRIBUNA", "PRIMERAS"],
     #     ["PRIMERAS"],
+
+    # FINAL SUDAMERICANA: sin filtro avisaria de los 90 bloques del estadio
+    "https://sudamericana.eleventickets.com/#!/apresentacao/4bb1cb440b627393353ec181eb59a53056c9786c":
+        ["CAT2 - Oriental Tribuna Alta", "CAT2 - Oriental Tribuna Media", "CAT2 - Oriental Tribuna Baja",
+         "CAT1 - Occidental Tribuna Alta", "CAT1 - Occidental Tribuna Media", "CAT1 - Occidental Tribuna Baja",
+         "CAT3 - Norte", "CAT3 - Sur"],
 
 }
 
@@ -576,6 +586,11 @@ def es_url_taquillalive_performance_details(url):
 def es_url_taquillalive_book(url):
     """Detecta si es la página de compra de entradas"""
     return "taquillalive.com" in url and "book-performance" in url
+
+
+def es_url_eleventickets(url):
+    """Detecta si es una URL de Eleventickets (Final Sudamericana)"""
+    return "eleventickets.com" in url
 
 
 # ============================================================
@@ -948,6 +963,54 @@ def verificar_disponibilidad_ticketmaster(driver, url):
     except Exception as e:
         print(f"Error al verificar disponibilidad en Ticketmaster: {e}")
         log.exception(f"Error en Ticketmaster: {url}")
+        return [], [], url
+
+
+ESPERA_MAPA_ELEVENTICKETS = 12  # Segundos maximos hasta que el mapa pinte sus bloques
+
+
+def verificar_disponibilidad_eleventickets(driver, url):
+    """
+    Bloques del mapa de Eleventickets habilitados (disponibles) y deshabilitados (agotadas).
+
+    Se leen de las capas del mapa (`capa.dados.disabled`), lo mismo que usa la pagina para
+    dejar pulsar o no un sector. Habilitado NO garantiza entradas: el cupo real solo se sabe
+    al anadir al carrito ("¡El producto está agotado!"). Es la misma distincion
+    catalogo-vs-disponibilidad que en Ticketmaster y TaquillaLive, pero aqui leer el cupo
+    exigiria pulsar cada bloque (una peticion por bloque y ronda): no se hace.
+
+    Mientras se espera al mapa solo se consulta el estado de la pagina ya cargada (sin red):
+    el contenido llega unos segundos despues de la carga, como en las demas plataformas.
+    """
+    try:
+        print(f"\n-> Navegando a Eleventickets: {url}")
+        # La URL lleva "#!": si la pestana ya esta en ella, get() solo cambia el ancla y no
+        # recarga. about:blank no hace ninguna peticion.
+        if (driver.current_url or "") == url:
+            driver.get("about:blank")
+        navegar(driver, url)
+        time.sleep(3)
+
+        limite = time.time() + ESPERA_MAPA_ELEVENTICKETS
+        bloques = driver.execute_script(reserva_eleventickets.JS_BLOQUES)
+        while not bloques and time.time() < limite:
+            time.sleep(0.5)
+            bloques = driver.execute_script(reserva_eleventickets.JS_BLOQUES)
+
+        if not bloques:
+            print("   No se pudo leer el mapa de sectores")
+            return [], [], url
+
+        disponibles = [b["nombre"] for b in bloques if b["libre"]]
+        agotadas = [b["nombre"] for b in bloques if not b["libre"]]
+        print(f"   Bloques leidos: {len(bloques)} (habilitados: {len(disponibles)})")
+        for nombre in disponibles[:LIMITE_DETALLE_SECCIONES]:
+            print(f"      - {nombre}")
+        return disponibles, agotadas, url
+
+    except Exception as e:
+        print(f"Error al verificar disponibilidad en Eleventickets: {e}")
+        log.exception(f"Error en Eleventickets: {url}")
         return [], [], url
 
 
@@ -1744,6 +1807,22 @@ RESERVAR_TICKETMASTER = {
                                    "SUR ALTA", "SUR BAJA", "ORIENTAL SUR ALTA"], "max_reservas": 8},
 }
 
+# Reserva en Eleventickets (reserva_eleventickets.py): cuando un bloque que cumple aparece
+# HABILITADO en el mapa por primera vez, se abre una pestana en el navegador de reserva, se
+# marca hasta "maximo" (bajando 4 -> 3 -> 2 -> 1 si dice agotado) y se pulsa "Anadir al
+# Carrito de Compras". Ahi se para: el pago lo hace el usuario desde el carrito.
+# "sectores" son palabras; su ORDEN es la prioridad. Independiente de FILTROS_LOCALIDADES.
+RESERVAR_ELEVENTICKETS = {
+    "https://sudamericana.eleventickets.com/#!/apresentacao/4bb1cb440b627393353ec181eb59a53056c9786c":
+    # Todo el estadio. El ORDEN es la prioridad: primero CAT2 Oriental (lo pedido al
+    # principio), luego CAT1 Occidental y al final CAT3. Ojo: segun las preguntas
+    # frecuentes del evento, el sector Sur es solo para hinchas de Atletico Mineiro.
+        {"maximo": 4, "sectores": [
+            "CAT2 - Oriental Tribuna Alta", "CAT2 - Oriental Tribuna Media", "CAT2 - Oriental Tribuna Baja",
+            "CAT1 - Occidental Tribuna Alta", "CAT1 - Occidental Tribuna Media", "CAT1 - Occidental Tribuna Baja",
+            "CAT3 - Norte", "CAT3 - Sur"]}
+}
+
 # Un bloqueo persiste; avisar en cada ronda solo cambiaria un problema de
 # ruido por otro. Un aviso por sitio y por hora basta para enterarse.
 INTERVALO_AVISO_BLOQUEO = 3600  # Segundos
@@ -2139,6 +2218,133 @@ def intentar_reserva(driver, url, sectores, nombre_evento):
     return [reserva]
 
 
+def intentar_reserva_eleventickets(driver, url, bloques_nuevos, nombre_evento):
+    """
+    Anade al carrito en Eleventickets y avisa por Telegram. Nunca lanza.
+
+    Se dispara si algun bloque recien habilitado casa con RESERVAR_ELEVENTICKETS[url]
+    ["sectores"]; entonces se prueban TODOS los bloques habilitados que casan, por prioridad
+    (uno viejo tambien puede tener cupo). Una pestana nueva en el navegador de reserva: si
+    algo entro al carrito se deja abierta; si no, se cierra. Devuelve la Reserva o None.
+    """
+    config = RESERVAR_ELEVENTICKETS.get(url) or {}
+    maximo = config.get("maximo", reserva_eleventickets.MAXIMO_POR_COMPRADOR)
+    palabras = config.get("sectores") or []
+    claves = [normalizar_nombre(p) for p in palabras if normalizar_nombre(p)]
+    casan = [b for b in bloques_nuevos if any(c in normalizar_nombre(b) for c in claves)]
+    if not casan:
+        if bloques_nuevos:
+            log.info(f"RESERVA: ningun bloque nuevo coincide con {palabras}: {bloques_nuevos[:10]} | {url}")
+        return None
+    # Mismo freno que en Ticketmaster: si el aviso fallo, el bloque vuelve a ser "nuevo".
+    if time.time() - _ULTIMA_RESERVA.get(url, 0) < INTERVALO_RECORDATORIO:
+        print("   🎟️ Ya se añadio al carrito hace poco en este evento; no se repite")
+        return None
+
+    if url in _PESTANA_VERIFICACION:
+        # Ya hay una pestana esperando a que el usuario pase Cloudflare: otra nueva caeria en
+        # la misma verificacion. La reserva sale de reintentar_tras_verificacion().
+        print("   🎟️ Hay una pestaña esperando la verificación de Cloudflare; se reserva ahí al pasarla")
+        return None
+
+    log.warning(f"RESERVA Eleventickets: bloques nuevos {casan[:10]}; intentando {palabras} (max {maximo}) | {url}")
+    navegador, motivo = navegador_reserva(driver)
+    if navegador is None:
+        reserva = reserva_eleventickets.Reserva(False, pedidas=maximo, detalle=motivo)
+    else:
+        print(f"   🎟️ Añadiendo al carrito hasta {maximo} entrada(s) en una pestaña nueva...")
+        reserva = _carrito_en_pestana(navegador, url, palabras, maximo)
+    return _avisar_carrito(reserva, nombre_evento, url)
+
+
+# url -> pestana del navegador de reserva que se quedo en la verificacion de Cloudflare
+_PESTANA_VERIFICACION = {}
+
+
+def _carrito_en_pestana(navegador, url, palabras, maximo, pestana=None):
+    """
+    Corre reservar() en una pestana nueva o, con `pestana`, en esa (sin recargarla). Si se
+    queda en la verificacion de Cloudflare, la pestana se apunta en _PESTANA_VERIFICACION;
+    si no entro nada al carrito, se cierra. Nunca lanza.
+    """
+    original = navegador.current_window_handle
+    cerrar = False
+    try:
+        if pestana:
+            navegador.switch_to.window(pestana)
+        else:
+            navegador.switch_to.new_window("tab")
+        pagina = reserva_eleventickets.PaginaSelenium(navegador, url, navegar, ya_cargada=bool(pestana))
+        reserva = reserva_eleventickets.reservar(pagina, palabras, maximo=maximo)
+        if reserva.conservar_pestana:
+            _PESTANA_VERIFICACION[url] = navegador.current_window_handle
+        cerrar = not reserva.ok and not reserva.conservar_pestana
+    except Exception as e:
+        log.exception(f"RESERVA Eleventickets: error inesperado | {url}")
+        reserva = reserva_eleventickets.Reserva(False, pedidas=maximo, detalle=f"error inesperado: {e}")
+    finally:
+        try:
+            if cerrar:
+                navegador.close()
+            navegador.switch_to.window(original)
+        except WebDriverException:
+            log.exception("RESERVA: no se pudo volver a la pestaña original")
+    return reserva
+
+
+def _avisar_carrito(reserva, nombre_evento, url):
+    if reserva.ok:
+        _ULTIMA_RESERVA[url] = time.time()
+    resultado = "OK" if reserva.ok else "FALLO"
+    log.warning(f"RESERVA Eleventickets {resultado}: {reserva} | {url}")
+    print(f"   🎟️ Carrito {resultado}: {reserva.detalle or str(reserva.cantidad) + ' entrada(s)'}")
+    enviar_notificacion(reserva_eleventickets.mensaje(reserva, nombre_evento, url, time.strftime('%H:%M:%S')))
+    return reserva
+
+
+def reintentar_tras_verificacion(driver, url, nombre_evento):
+    """
+    Segundo intento cuando el primero se quedo en la verificacion de Cloudflare.
+
+    Una vez por ronda se MIRA la pestana que quedo abierta (solo JavaScript, sin recargar ni
+    pedir nada a Eleventickets). Mientras siga en la verificacion no se hace nada: se espera
+    al usuario, que ya tiene el Telegram del fallo. En cuanto la pagina muestra el mapa, se
+    reserva ahi mismo, sin recargar. Devuelve la Reserva, o None si no tocaba.
+    """
+    pestana = _PESTANA_VERIFICACION.get(url)
+    if not pestana:
+        return None
+    navegador, _ = navegador_reserva(driver)
+    if navegador is None:
+        return None
+    try:
+        if pestana not in navegador.window_handles:
+            _PESTANA_VERIFICACION.pop(url, None)  # el usuario la cerro
+            log.info(f"RESERVA Eleventickets: la pestaña de la verificacion ya no existe | {url}")
+            return None
+        original = navegador.current_window_handle
+        navegador.switch_to.window(pestana)
+        try:
+            listo = navegador.execute_script(reserva_eleventickets.JS_ESTADO)
+        finally:
+            navegador.switch_to.window(original)
+    except WebDriverException:
+        log.exception(f"RESERVA Eleventickets: no se pudo mirar la pestaña de la verificacion | {url}")
+        return None
+    if not listo:
+        print("   🎟️ La pestaña de reserva sigue en la verificación de Cloudflare; esperando a que la pases")
+        return None
+
+    _PESTANA_VERIFICACION.pop(url, None)
+    config = RESERVAR_ELEVENTICKETS.get(url) or {}
+    maximo = config.get("maximo", reserva_eleventickets.MAXIMO_POR_COMPRADOR)
+    palabras = config.get("sectores") or []
+    log.warning(f"RESERVA Eleventickets: verificacion pasada, reintentando {palabras} (max {maximo}) | {url}")
+    print(f"   🎟️ Verificación pasada: añadiendo al carrito en esa pestaña...")
+    reserva = _carrito_en_pestana(navegador, url, palabras, maximo, pestana=pestana)
+    return _avisar_carrito(reserva, nombre_evento, url)
+
+
 def monitorear_urls(driver):
     """Monitorea todas las URLs en busca de disponibilidad"""
 
@@ -2198,6 +2404,9 @@ def monitorear_urls(driver):
                     elif es_url_ticketmaster(url):
                         disponibles, agotadas, url_final = verificar_disponibilidad_ticketmaster(driver, url)
                         tipo = 'Ticketmaster'
+                    elif es_url_eleventickets(url):
+                        disponibles, agotadas, url_final = verificar_disponibilidad_eleventickets(driver, url)
+                        tipo = 'Eleventickets'
                     elif es_url_tbpgpal(url):
                         disponibles, agotadas, url_final = contar_localidades_disponibles(driver, url)
                         tipo = 'TbpGpal'
@@ -2335,6 +2544,17 @@ def monitorear_urls(driver):
                             estado, url_final + CLAVE_RESERVA, candidatos)
                         if nuevas_reserva:
                             intentar_reserva(driver, url_final, nuevas_reserva, obtener_nombre_evento(driver))
+
+                    # Lo mismo para Eleventickets: solo ante bloques recien habilitados. Un bloque
+                    # que sigue habilitado no se reintenta en cada ronda (seria una peticion de
+                    # reserva por ronda); vuelve a contar si se deshabilita y se rehabilita.
+                    if url_final in RESERVAR_ELEVENTICKETS and es_url_eleventickets(url_final):
+                        reintentar_tras_verificacion(driver, url_final, obtener_nombre_evento(driver))
+                        nuevas_reserva, _, _ = localidades_a_notificar(
+                            estado, url_final + CLAVE_RESERVA, disponibles)
+                        if nuevas_reserva:
+                            intentar_reserva_eleventickets(driver, url_final, nuevas_reserva,
+                                                           obtener_nombre_evento(driver))
 
                     # Antes esta pausa ocurria tras cada notificacion. Con la
                     # deduplicacion se avisa mucho menos, asi que se ata a la
