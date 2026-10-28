@@ -527,6 +527,8 @@ class DriverTexto:
             return self.garantia
         if script == rt.JS_GARANTIA_ACTIVA:
             return next(self.activa, False)
+        if script == rt.JS_TARIFAS:
+            return []      # formato de una sola tarifa: se lee con RE_CANTIDAD
         if "document.body.innerText" in script:
             return self.texto
         if script.startswith("arguments[0].click"):
@@ -628,6 +630,22 @@ class TestAbrirMapaReal(unittest.TestCase):
         self.assertIn(rt.JS_CERRAR_AVISO, driver.scripts)
         self.assertEqual(driver.elemento.clics, 1)
         self.assertIn("Límite de cantidad", p.aviso_limite)
+
+    def test_portada_nueva_con_comprar_entradas(self):
+        # Bunbury (28-oct-2026): "Comprar entradas" despliega la fecha con su "Ver entradas".
+        pasos = iter([chr(10).join(["Cerrar sesión", "Sáb. 31 Oct. 21:00", "Ver entradas"]),
+                      chr(10).join(["Cerrar sesión", "Seleccionar sector", "Localidad Central"])])
+
+        class Boton(Elemento):
+            def click(self):
+                super().click()
+                driver.texto = next(pasos, driver.texto)
+
+        driver = DriverTexto(chr(10).join(["Cerrar sesión", "Bunbury - Cali", "Comprar entradas"]))
+        driver.elemento = Boton()
+        p = self.pagina_con(driver)
+        self.assertTrue(p.abrir_mapa())
+        self.assertEqual(driver.elemento.clics, 2)      # "Comprar entradas" y luego "Ver entradas"
 
     def test_evento_sin_ver_entradas_ya_muestra_los_sectores(self):
         # Iron Maiden: la pagina abre directamente en "Seleccionar sector".
@@ -777,5 +795,185 @@ class TestMensaje(unittest.TestCase):
         self.assertIn("3 boleta(s) retenidas", retenido)
 
 
+class PaginaSeguroNuevo(PaginaFalsa):
+    """
+    Interfaz nueva (Mana, 28-oct-2026, captura de Aldemar): tras las boletas listadas, una
+    sola pantalla con la entrega ya puesta y el bloque "Seguro de devolucion de entradas". El
+    boton de abajo dice "Elige si quieres sumar el seguro" hasta elegir; luego "Continuar al
+    pago" lleva a los medios de pago.
+    """
+
+    def __init__(self, entrega="Boleto Digital en la App (más seguro)", tarjeta="Recibirás tus tickets en la app",
+                 variante="seguro", **kw):
+        super().__init__(**kw)
+        self.entrega = entrega
+        self.tarjeta = tarjeta
+        # "seguro": bloque con "Continuar sin seguro" y el pago bloqueado hasta elegir.
+        # "proteccion": "Sin protección / Proteger mis entradas" con "Continuar al pago" ya activo
+        # (Bunbury, 28-oct-2026).
+        self.variante = variante
+        self.seguro = None if variante == "seguro" else False
+
+    def _continuar(self):
+        if self.estado == "lista":
+            self.estado = "seguro"
+            return True
+        return super()._continuar()
+
+    def clic(self, texto):
+        if self.estado == "seguro":
+            self.clics.append(texto)
+            if texto == rt.BOTON_SIN_SEGURO:
+                self.seguro = False
+                return True
+            if texto.startswith("Sumar seguro"):
+                self.seguro = True
+                return True
+            if texto == rt.BOTON_AL_PAGO and self.seguro is not None:
+                self.estado = "pago"
+                return True
+            return False
+        return super().clic(texto)
+
+    def texto(self):
+        if self.estado != "seguro":
+            return super().texto()
+        abajo = rt.BOTON_AL_PAGO if self.seguro is not None else "Elige si quieres sumar el seguro"
+        if self.variante == "seguro":
+            bloque = ("Seguro de devolución de entradas\n"
+                      "Si no puedes ir te devolvemos el 100 % de tus entradas\n$ 56.350\n"
+                      "Haga click aquí para conocer Términos y Condiciones de la Garantía Extendida\n"
+                      "Continuar sin seguro\nSumar seguro por $ 56.350\n")
+        else:
+            bloque = ("Si no puedes ir no podrás recuperar el valor de tus entradas\n"
+                      "Puedes sumar la protección hasta confirmar la compra\nSin protección\nProteger mis entradas\n")
+        return (f"{self.tarjeta}\n$ 8.000\n" + bloque +
+                f"{self.cantidad} × Platea C Impares (Mayores +18) – Entrada\n$ 669.000\n"
+                f"{self.entrega}\n$ 8.000\n" + ("Seguro\n$ 56.350\n" if self.seguro else "")
+                + f"Total\n$ 813.000\n{abajo}")
+
+
+class TestSeguroNuevo(unittest.TestCase):
+
+    def test_continua_sin_seguro_y_llega_al_pago(self):
+        p = PaginaSeguroNuevo(cupo=1, tope=1)
+        r = rt.reservar(p, [SECTOR], maximo=4)
+        self.assertTrue(r.ok)
+        self.assertEqual(r.cantidad, 1)
+        self.assertIs(p.seguro, False)
+        self.assertLess(p.clics.index(rt.BOTON_SIN_SEGURO), p.clics.index(rt.BOTON_AL_PAGO))
+        self.assertFalse(any(c.startswith("Sumar seguro") for c in p.clics))
+
+    def test_texto_de_la_pagina_real_sin_espacios_duros(self):
+        # Mana 15:52 (28-oct-2026): "Seguro de devolución de entradas" con \xa0 no se reconocio.
+        driver = DriverTexto("Seguro\xa0de devolución\xa0de entradas\nContinuar\xa0sin seguro")
+        t = rt.PaginaSelenium(driver, "https://x", lambda d, u: None).texto()
+        self.assertNotIn("\xa0", t)
+        self.assertTrue(rt.RE_SEGURO.search(t))
+        self.assertIn(rt.BOTON_SIN_SEGURO, t)
+
+    def test_clic_sin_efecto_en_sin_seguro_se_repite(self):
+        # Mana, Platea C, 16:05 (28-oct-2026): el clic no cambio el boton de abajo, pero la
+        # pantalla si cambiaba (contador), y el bot daba el seguro por rechazado.
+        class PrimerClicPerdido(PaginaSeguroNuevo):
+            perdidos = 1
+            segundos = 0
+
+            def clic(self, texto):
+                if self.estado == "seguro" and texto == rt.BOTON_SIN_SEGURO and self.perdidos:
+                    self.perdidos -= 1
+                    self.clics.append(texto)
+                    self.segundos += 1           # la pantalla cambia sola
+                    return True
+                return super().clic(texto)
+
+            def texto(self):
+                return super().texto() + f"\n04:{59 - self.segundos:02d}"
+
+        p = PrimerClicPerdido()
+        r = rt.reservar(p, [SECTOR], maximo=4)
+        self.assertTrue(r.ok)
+        self.assertEqual(p.clics.count(rt.BOTON_SIN_SEGURO), 2)
+        self.assertIs(p.seguro, False)
+
+    def test_bloque_del_seguro_que_tarda_en_cargar(self):
+        # Mana, Platea C, 16:27 (28-oct-2026): el resumen sale antes que el seguro, y el
+        # contador cambia el texto cada segundo. El bot se rendia en ~2 s.
+        class SeguroTardio(PaginaSeguroNuevo):
+            lecturas = 0
+
+            def texto(self):
+                t = super().texto()
+                if self.estado != "seguro":
+                    return t
+                self.lecturas += 1
+                contador = f"\n04:{59 - self.lecturas % 60:02d}"
+                if self.lecturas <= 4:            # aun sin el bloque del seguro
+                    return "Resumen\nTotal\n$ 813.000\nElige si quieres sumar el seguro" + contador
+                return t + contador
+
+            def esperar(self, condicion, segundos):
+                for _ in range(10):                # la pagina sigue viva mientras se espera
+                    t = self.texto()
+                    if condicion(t):
+                        return t
+                return None
+
+        p = SeguroTardio()
+        self.assertTrue(rt.reservar(p, [SECTOR], maximo=4).ok)
+        self.assertIn(rt.BOTON_SIN_SEGURO, p.clics)
+
+    def test_seguro_reconocido_solo_por_su_boton(self):
+        class SinTitulo(PaginaSeguroNuevo):
+            def texto(self):
+                return super().texto().replace("Seguro de devolución de entradas\n", "")
+        p = SinTitulo()
+        self.assertTrue(rt.reservar(p, [SECTOR], maximo=4).ok)
+        self.assertLess(p.clics.index(rt.BOTON_SIN_SEGURO), p.clics.index(rt.BOTON_AL_PAGO))
+
+    def test_variante_sin_proteccion_va_directo_al_pago(self):
+        p = PaginaSeguroNuevo(variante="proteccion")
+        r = rt.reservar(p, [SECTOR], maximo=4)
+        self.assertTrue(r.ok)
+        self.assertNotIn(rt.BOTON_SIN_SEGURO, p.clics)
+        self.assertNotIn("Proteger mis entradas", p.clics)
+
+    def test_entrega_con_espacios_duros_vale(self):
+        # Bunbury (28-oct-2026): la reserva real se paro aqui con la entrega de la app a la vista.
+        p = PaginaSeguroNuevo(variante="proteccion", tarjeta="Envío",
+                              entrega="Boleto\xa0Digital\xa0en la\nApp (más seguro)")
+        self.assertTrue(rt.reservar(p, [SECTOR], maximo=4).ok)
+
+    def test_vale_la_tarjeta_de_entrega_nueva(self):
+        p = PaginaSeguroNuevo(variante="proteccion", entrega="Entrega digital")
+        self.assertTrue(rt.reservar(p, [SECTOR], maximo=4).ok)
+
+    def test_sin_la_entrega_de_la_app_no_sigue_al_pago(self):
+        p = PaginaSeguroNuevo(entrega="Boletas físicas por mensajería", tarjeta="Envío a domicilio")
+        r = rt.reservar(p, [SECTOR], maximo=4)
+        self.assertFalse(r.ok)
+        self.assertTrue(r.retenidas)
+        self.assertNotIn(rt.BOTON_AL_PAGO, p.clics)
+        self.assertIn("Boleto Digital en la App", r.detalle)
+
+    def test_la_interfaz_vieja_sigue_funcionando(self):
+        r = rt.reservar(PaginaFalsa(), [SECTOR], maximo=4)
+        self.assertTrue(r.ok)
+
+
+class TestElegirTarifa(unittest.TestCase):
+    """Mana (28-oct-2026): Preferencial trae dos tarifas y la primera es de convenio."""
+
+    def test_salta_la_de_descuento(self):
+        self.assertEqual(rt.elegir_tarifa(["Entrada ET1 | Descuento Compensar", "Entrada | Etapa 1"]), 1)
+
+    def test_una_sola_tarifa(self):
+        self.assertEqual(rt.elegir_tarifa(["General"]), 0)
+
+    def test_si_todas_son_restringidas_usa_la_primera(self):
+        self.assertEqual(rt.elegir_tarifa(["Descuento Compensar", "Convenio Cafam"]), 0)
+
+
 if __name__ == "__main__":
     unittest.main()
+

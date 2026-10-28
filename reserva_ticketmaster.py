@@ -37,6 +37,9 @@ ESPERA_ACTIVA = 3              # Segundos hasta ver la garantia marcada tras un 
 TIEMPO_MAXIMO_RESERVA = 150    # Segundos para todo el intento
 
 ENTREGA_OBLIGATORIA = "Boleto Digital en la App"
+# En la interfaz nueva la entrega ya viene puesta: la tarjeta dice "Recibirás tus tickets en
+# la app" y el resumen "Boleto Digital en la App (más seguro)". Cualquiera de las dos vale.
+ENTREGAS_APP = (ENTREGA_OBLIGATORIA, "Recibirás tus tickets en la app")
 RECHAZO_GARANTIA = "no gracias"
 
 RE_EXPIRA = re.compile(r"La reserva expira en\s*(\d{1,2}:\d{2})", re.I)
@@ -63,6 +66,15 @@ RE_SIN_BOLETAS = re.compile(
 # Aviso REAL cuando se pide mas de lo que hay (visto en Iron Maiden, sector 107, 1-oct-2026): el
 # "+" se frena en el maximo disponible y muestra "Limite de cantidad / Has seleccionado el
 # maximo disponible para esta tarifa". No espera al Continuar: hay que dejar de pulsar.
+# Interfaz nueva (Mana, 28-oct-2026, vista por Aldemar): la garantia vieja (lista con "no
+# gracias") pasa a ser un bloque "Seguro de devolucion de entradas" con dos botones, "Continuar
+# sin seguro" y "Sumar seguro por $ ...". El boton de abajo dice "Elige si quieres sumar el
+# seguro" (deshabilitado) hasta elegir, y luego "Continuar al pago", que lleva a los medios de
+# pago. Los pasos viejos se conservan: cada pantalla se reconoce por su texto.
+RE_SEGURO = re.compile(r"Seguro de devoluci.n de entradas", re.I)
+BOTON_SIN_SEGURO = "Continuar sin seguro"
+BOTON_AL_PAGO = "Continuar al pago"
+BOTON_COMPRAR = "Comprar entradas"
 AVISO_LIMITE = "Límite de cantidad"
 BOTON_ASIENTOS = "Buscar mejores asientos"
 RE_CANTIDAD = re.compile(r"\$\s*[\d.]+\s*\+\s*\$\s*[\d.]+\s*\n\s*(\d+)\s*\n")
@@ -88,6 +100,12 @@ class Reserva:
 def _sin_acentos(texto):
     base = unicodedata.normalize("NFD", texto or "")
     return "".join(c for c in base if unicodedata.category(c) != "Mn").lower()
+
+
+def _contiene(texto, frase):
+    """frase en texto sin distinguir mayusculas, espacios duros (\\xa0) ni saltos de linea."""
+    plano = lambda s: " ".join((s or "").replace("\xa0", " ").split()).lower()
+    return plano(frase) in plano(texto)
 
 
 def _lineas_nuevas(antes, ahora):
@@ -134,15 +152,29 @@ def _continuar_seleccion(pagina):
     return False, "sin respuesta: " + _lineas_nuevas(antes, pagina.texto())
 
 
+def _reconocida(t):
+    """Hay en pantalla algo que _hasta_pago() sabe hacer (o el pago)."""
+    return bool(RE_PAGO.search(t) or "Confirmar reserva" in t or RE_SEGURO.search(t)
+                or BOTON_SIN_SEGURO in t or BOTON_AL_PAGO in t or RE_ENTREGA.search(t)
+                or RE_GARANTIA.search(t) or "Cambiar tarifa" in t)
+
+
 def _hasta_pago(pagina, sector, cantidad, pedidas, limite, reloj):
     """Recorre garantia, entrega y confirmacion hasta la pantalla de pago."""
 
     def fallo(detalle):
-        pantalla = " | ".join(l.strip() for l in pagina.texto().splitlines() if l.strip())[-260:]
+        # El final del texto es el pie de pagina (enlaces legales): no dice nada. Se corta antes.
+        texto = pagina.texto()
+        for marca in ("Anexo privacidad", "Trabaja con Nosotros", "© 19"):
+            if marca in texto:
+                texto = texto[:texto.index(marca)]
+                break
+        pantalla = " | ".join(l.strip() for l in texto.splitlines() if l.strip())[-400:]
         return Reserva(False, sector, cantidad, pedidas, retenidas=True,
                        detalle=f"{detalle}. Pantalla: ...{pantalla}" if pantalla else detalle)
 
     estancados = 0
+    sin_seguro = False   # ya se pulso "Continuar sin seguro" en esta reserva
     for _ in range(PASOS_MAXIMOS):
         if reloj() > limite:
             return fallo("se acabo el tiempo antes de llegar al pago")
@@ -157,6 +189,19 @@ def _hasta_pago(pagina, sector, cantidad, pedidas, limite, reloj):
 
         if "Confirmar reserva" in t:
             accion = "Confirmar reserva"
+        elif (RE_SEGURO.search(t) or BOTON_SIN_SEGURO in t) and not sin_seguro:
+            # Nunca el seguro (como nunca la garantia): primero "Continuar sin seguro", y solo
+            # despues "Continuar al pago", aunque ese boton ya estuviera a la vista.
+            accion = BOTON_SIN_SEGURO
+        elif BOTON_AL_PAGO in t:
+            # La entrega no se elige en esta pantalla: viene en el resumen. Si no es la de la
+            # app, no se sigue (misma regla que el paso de entrega viejo). La primera reserva
+            # real con esta pantalla (Bunbury, 28-oct-2026) se paro aqui aunque la captura
+            # mostraba "Boleto Digital en la App (más seguro)": se compara sin espacios duros
+            # ni saltos de linea y se da unos segundos al resumen para pintarse.
+            if not pagina.esperar(lambda x: any(_contiene(x, e) for e in ENTREGAS_APP), ESPERA_RESPUESTA):
+                return fallo(f"el resumen no muestra '{ENTREGA_OBLIGATORIA}'; no segui al pago")
+            accion = BOTON_AL_PAGO
         elif RE_ENTREGA.search(t):
             accion = ENTREGA_OBLIGATORIA
         elif RE_GARANTIA.search(t):
@@ -169,12 +214,24 @@ def _hasta_pago(pagina, sector, cantidad, pedidas, limite, reloj):
             accion = None
 
         if accion is None:
-            estancados += 1
-            pagina.esperar(lambda nuevo: nuevo != t, ESPERA_RESPUESTA)
+            # Se espera a una pantalla CONOCIDA, no a cualquier cambio: el contador cambia el
+            # texto cada segundo. En Platea C de Mana (16:27, 28-oct-2026) el bloque del seguro
+            # tarda en cargar y el bot se rendia en ~2 s, antes de verlo.
+            if pagina.esperar(_reconocida, ESPERA_PASO) is None:
+                estancados += 1
         elif not pagina.clic(accion):
             if accion == ENTREGA_OBLIGATORIA:
                 return fallo(f"el evento no ofrece '{ENTREGA_OBLIGATORIA}'; no elegi otra entrega")
             estancados += 1
+        elif accion == BOTON_SIN_SEGURO:
+            # Solo cuenta cuando el boton de abajo pasa a "Continuar al pago". Antes bastaba con
+            # que cambiara cualquier texto (la pantalla cambia sola): Platea C de Mana (16:05,
+            # 28-oct-2026) dio el seguro por rechazado sin estarlo y se quedo parada.
+            if pagina.esperar(lambda nuevo: BOTON_AL_PAGO in nuevo, ESPERA_PASO) is None:
+                estancados += 1
+            else:
+                estancados = 0
+                sin_seguro = True
         elif pagina.esperar(lambda nuevo: nuevo != t, ESPERA_PASO) is None:
             estancados += 1
         else:
@@ -308,12 +365,14 @@ def mensaje(reserva, evento, url, hora):
 _JS_VISIBLE = ("var vis=function(e){var r=e.getBoundingClientRect();"
                "return r.width>0&&r.height>0&&getComputedStyle(e).visibility!=='hidden';};")
 
+# Los espacios (tambien los duros, \\u00a0, que \\s incluye) se igualan antes de comparar.
 JS_CLIC_TEXTO = _JS_VISIBLE + """
-var t = arguments[0].toLowerCase();
+var plano = function (s) { return (s || '').replace(/\\s+/g, ' ').trim().toLowerCase(); };
+var t = plano(arguments[0]);
 var c = Array.from(document.querySelectorAll('button,a,[role=button],label,h1,h2,h3,h4,h5,h6,span,div,p,li'))
   .filter(function (e) {
       if (!vis(e)) { return false; }
-      var x = (e.innerText || '').trim().toLowerCase();
+      var x = plano(e.innerText);
       return x === t || (x.indexOf(t) === 0 && x.length < t.length + 40);
   });
 c = c.filter(function (e) { return !c.some(function (o) { return o !== e && e.contains(o); }); });
@@ -322,8 +381,11 @@ c[0].scrollIntoView({block: 'center'});
 return c[0];
 """
 
+# Los espacios se igualan: el catalogo trae nombres con espacios dobles escritos a mano
+# ("101 - 103 - 105 - 107  (Menores +12)", Mana) y la pantalla los muestra con uno solo.
+# Sin esto la reserva de ese sector fallaba con "el sector no aparece" (28-oct-2026).
 JS_ELEGIR_SECTOR = _JS_VISIBLE + """
-var sin = function (s) { return (s || '').normalize('NFD').replace(/[\\u0300-\\u036f]/g, '').trim().toLowerCase(); };
+var sin = function (s) { return (s || '').normalize('NFD').replace(/[\\u0300-\\u036f]/g, '').replace(/\\s+/g, ' ').trim().toLowerCase(); };
 var n = sin(arguments[0]);
 var o = Array.from(document.querySelectorAll('.sectorOption')).filter(function (e) {
     var h = e.querySelector('h5');
@@ -406,6 +468,55 @@ return null;
 """
 
 
+# Pantalla del seguro (Mana, Platea C, leida en vivo el 28-oct-2026): "Continuar sin seguro" es
+# button.ck-panel__exit--skip y el boton de abajo es button#ck-confirm, con la clase
+# ck-cta--disabled y aria-disabled="true" mientras dice "Elige si quieres sumar el seguro".
+BOTONES_POR_SELECTOR = {
+    BOTON_SIN_SEGURO: "button.ck-panel__exit--skip",
+    BOTON_AL_PAGO: "button#ck-confirm",
+}
+
+JS_BOTON_SELECTOR = _JS_VISIBLE + """
+var b = Array.from(document.querySelectorAll(arguments[0])).filter(vis)[0];
+if (!b || b.disabled || b.getAttribute('aria-disabled') === 'true') { return null; }
+b.scrollIntoView({block: 'center'});
+return b;
+"""
+
+# Filas de tarifa (Mana, 28-oct-2026): un sector puede tener VARIAS ("Entrada ET1 | Descuento
+# Compensar" y "Entrada | Etapa 1"), cada una en `.pk-rate.rateOption` con su contador
+# (`aria-valuenow`) y su propio `button.plus`. JS_SUMAR, pensado para una sola tarifa, cogia
+# el "+" equivocado o ninguno, y RE_CANTIDAD leia el contador de la primera: "el selector no
+# pasa de 0" con Preferencial disponible.
+JS_TARIFAS = _JS_VISIBLE + """
+return Array.from(document.querySelectorAll('.pk-rate.rateOption')).filter(vis).map(function (f) {
+    var nombre = f.querySelector('.pk-rate-name');
+    var valor = f.querySelector('.pk-qty-value');
+    return {nombre: (nombre ? nombre.innerText : '').trim(),
+            cantidad: parseInt(f.getAttribute('aria-valuenow') || (valor ? valor.innerText : '0'), 10) || 0};
+});
+"""
+
+JS_SUMAR_TARIFA = _JS_VISIBLE + """
+var f = Array.from(document.querySelectorAll('.pk-rate.rateOption')).filter(vis)[arguments[0]];
+var mas = f && f.querySelector('button.plus');
+if (!mas || mas.disabled || mas.getAttribute('aria-disabled') === 'true') { return null; }
+return mas;
+"""
+
+# Tarifas que piden algo que el comprador quiza no tiene (afiliacion, convenio): se prefiere
+# otra si la hay. Si solo hay de estas, se usa la primera.
+RE_TARIFA_RESTRINGIDA = re.compile(r"descuento|compensar|convenio|afiliad|colsubsidio|cafam|comfama", re.I)
+
+
+def elegir_tarifa(nombres):
+    """Indice de la tarifa a usar: la primera sin restricciones, o la primera de todas."""
+    for i, nombre in enumerate(nombres):
+        if not RE_TARIFA_RESTRINGIDA.search(nombre or ""):
+            return i
+    return 0
+
+
 class PaginaSelenium:
     """Pagina real sobre un driver de Selenium, en la pestana que este activa."""
 
@@ -429,13 +540,22 @@ class PaginaSelenium:
         self.seccion = ""          # la seccion que se eligio en este intento
         self.sin_secciones = False  # el paso de seccion no tenia ninguna elegible
         self.secciones_vistas = []  # estado de cada fila del ultimo paso de seccion
+        self.tarifa = None          # indice de la fila de tarifa elegida (None = una sola, formato viejo)
+        self.nombre_tarifa = ""
 
     def texto(self):
+        """
+        Texto visible, con los espacios duros (\\xa0) como espacios normales. Ticketmaster los
+        mete al azar en sus frases: la reserva de Mana de las 15:52 (28-oct-2026) no reconocio
+        "Seguro de devolución de entradas" y se paro con 1 boleta retenida, cuando la de las
+        15:40 en la misma pantalla habia ido bien.
+        """
         try:
-            return self.driver.execute_script(
+            texto = self.driver.execute_script(
                 "return document.body ? document.body.innerText : '';") or ""
         except Exception:
             return ""
+        return texto.replace("\xa0", " ")
 
     def esperar(self, condicion, segundos):
         limite = time.time() + segundos
@@ -504,6 +624,11 @@ class PaginaSelenium:
     def clic(self, texto):
         if texto == RECHAZO_GARANTIA:
             return self._rechazar_garantia()
+        # Botones de la pantalla nueva del seguro: primero por su clase/id, que es el boton
+        # mismo; si la pagina cambia y no estan, por su texto como todo lo demas.
+        selector = BOTONES_POR_SELECTOR.get(texto)
+        if selector and self._clic_elemento(lambda: self.driver.execute_script(JS_BOTON_SELECTOR, selector)):
+            return True
         return self._clic_elemento(lambda: self.driver.execute_script(JS_CLIC_TEXTO, texto))
 
     def abrir_mapa(self):
@@ -517,11 +642,21 @@ class PaginaSelenium:
             self.motivo = ("este navegador quedo en la fila de Queue-it; la pestana queda abierta "
                            "para no perder el puesto")
             return False
-        texto = self.esperar(lambda t: "Ver entradas" in t or "Seleccionar sector" in t, ESPERA_PASO)
+        texto = self.esperar(lambda t: "Ver entradas" in t or "Seleccionar sector" in t
+                             or BOTON_COMPRAR in t, ESPERA_PASO)
         if texto is None:
-            self.motivo = (f"la pagina no mostro 'Ver entradas' ni los sectores en {ESPERA_PASO}s "
-                           "(carga lenta o bloqueada en este navegador)")
+            self.motivo = (f"la pagina no mostro '{BOTON_COMPRAR}', 'Ver entradas' ni los sectores en "
+                           f"{ESPERA_PASO}s (carga lenta o bloqueada en este navegador)")
             return False
+        # Interfaz nueva (Bunbury, 28-oct-2026): la portada solo trae "Comprar entradas", que
+        # despliega la tarjeta de la fecha con su "Ver entradas". Sin este paso la reserva
+        # esperaba 15 s y fallaba. Los eventos que aun abren con "Ver entradas" no lo pisan.
+        if "Ver entradas" not in texto and "Seleccionar sector" not in texto:
+            self.clic(BOTON_COMPRAR)
+            texto = self.esperar(lambda t: "Ver entradas" in t or "Seleccionar sector" in t, ESPERA_PASO)
+            if texto is None:
+                self.motivo = f"tras '{BOTON_COMPRAR}' no aparecio 'Ver entradas' en {ESPERA_PASO}s"
+                return False
         # Sin sesion la reserva no pasa del primer Continuar: se dice desde ya.
         if "Cerrar sesión" not in texto and "Ingresar" in texto:
             self.motivo = "no hay sesion iniciada en Ticketmaster en este navegador"
@@ -576,19 +711,37 @@ class PaginaSelenium:
         self.sin_secciones = True     # no queda ninguna por reservar en este sector
         return None
 
+    def _tarifas(self):
+        try:
+            return self.driver.execute_script(JS_TARIFAS) or []
+        except Exception:
+            return []
+
     def _cantidad(self, texto=None):
+        if self.tarifa is not None:
+            filas = self._tarifas()
+            return filas[self.tarifa]["cantidad"] if self.tarifa < len(filas) else 0
         m = RE_CANTIDAD.search(self.texto() if texto is None else texto)
         return int(m.group(1)) if m else 0
+
+    def _boton_sumar(self):
+        if self.tarifa is not None:
+            return self.driver.execute_script(JS_SUMAR_TARIFA, self.tarifa)
+        return self.driver.execute_script(JS_SUMAR)
 
     def fijar_cantidad(self, n):
         """Sube hasta n con el "+"; se frena donde la pagina diga que ya no hay mas."""
         self.aviso_limite = ""
+        filas = self._tarifas()
+        # Sin filas de tarifa reconocibles se sigue como antes (una tarifa, RE_CANTIDAD).
+        self.tarifa = elegir_tarifa([f["nombre"] for f in filas]) if filas else None
+        self.nombre_tarifa = filas[self.tarifa]["nombre"] if filas else ""
         actual = self._cantidad()
         while actual < n:
             if AVISO_LIMITE in self.texto():
                 self._cerrar_aviso_limite()
                 break
-            if not self._clic_elemento(lambda: self.driver.execute_script(JS_SUMAR)):
+            if not self._clic_elemento(self._boton_sumar):
                 break
             if self.esperar(lambda t: self._cantidad(t) > actual or AVISO_LIMITE in t,
                             ESPERA_RESPUESTA) is None:
