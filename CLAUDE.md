@@ -149,6 +149,73 @@ fábrica y suma su línea al resumen; hay que pulsar "no gracias"), **siempre** 
 Digital en la App" aunque haya otras entregas, y **parar antes de pagar**: el bot no
 toca ningún medio de pago ni escribe datos de tarjeta.
 
+- **Interfaz nueva del seguro** (Maná, 28-oct-2026; la reserva real de Platea C se quedó
+  ahí con 1 boleta retenida, "pantalla desconocida"): tras las boletas listadas sale una
+  sola pantalla con la entrega ya puesta ("Recibirás tus tickets en la app"; en el resumen,
+  "Boleto Digital en la App (más seguro)") y el bloque "Seguro de devolución de entradas"
+  con "Continuar sin seguro" y "Sumar seguro por $ …". El botón de abajo dice "Elige si
+  quieres sumar el seguro" hasta elegir y luego "Continuar al pago" → medios de pago.
+  `_hasta_pago()` pulsa siempre "Continuar sin seguro" antes de "Continuar al pago", y no
+  sigue si el resumen no muestra la entrega de la app. Los pasos viejos (garantía con "no
+  gracias", entrega, "Confirmar reserva") **se conservan**: no se sabe si todos los eventos
+  cambiaron. Probado solo con página simulada.
+  - Otra variante (Bunbury, misma tarde): "Si no puedes ir no podrás recuperar el valor de
+    tus entradas" con "Sin protección" / "Proteger mis entradas", y "Continuar al pago" ya
+    activo. No se pulsa nada del seguro: directo a "Continuar al pago".
+  - La comprobación de entrega acepta "Boleto Digital en la App" o "Recibirás tus tickets en
+    la app" (`ENTREGAS_APP`), sin distinguir espacios duros ni saltos de línea (`_contiene`),
+    y espera unos segundos al resumen. La reserva real de Bunbury se paró ahí con 4 boletas
+    retenidas ("el resumen no muestra…") aunque la captura lo mostraba; la causa exacta no se
+    vio (sospecha: `\xa0`, que el pie de página sí traía). `fallo()` ahora corta el pie de
+    página para que el Telegram muestre la pantalla.
+- **"Continuar sin seguro" que no hace efecto** (Maná, Platea C, 16:05, 28-oct-2026, leído
+  en vivo en la pestaña que quedó retenida): el texto del seguro **sí** estaba; el bot pulsó
+  "Continuar sin seguro", la pantalla cambió sola (contador) y lo dio por hecho, pero el botón
+  de abajo seguía en "Elige si quieres sumar el seguro" (`button#ck-confirm.ck-cta--disabled`,
+  `aria-disabled="true"`). Ahora "sin seguro" solo cuenta cuando aparece "Continuar al pago";
+  si no, se repite el clic. Los dos botones se pulsan primero por selector
+  (`BOTONES_POR_SELECTOR`: `button.ck-panel__exit--skip`, `button#ck-confirm`) y si no, por
+  texto. Al vencer, la pantalla muestra el diálogo "Se acabó el tiempo de reserva"
+  (`.modal.ck-expired`), que es consecuencia, no causa. La sospecha de los espacios duros
+  no era la causa aquí (falló igual con el arreglo puesto), pero el arreglo se queda.
+- **El seguro que tarda en cargar** (Maná, Platea C, 16:27, 28-oct-2026): falló en 6 s,
+  mientras Preferencial y Bunbury Platino (variante "Sin protección", con "Continuar al pago"
+  ya a la vista) pasaban. En Platea C (platea numerada, asiento asignado, variante "Seguro de
+  devolución" con el precio del seguro calculado) el resumen sale antes que el bloque del
+  seguro; el bot veía una pantalla sin nada que reconocer, esperaba "a que cambiara algo", el
+  contador lo cambiaba al instante y en ~2 s lo daba por atascado. Ahora, ante una pantalla
+  desconocida, espera hasta `ESPERA_PASO` a una pantalla **conocida** (`_reconocida()`).
+  Hipótesis por tiempos del registro, sin ver la pantalla en ese instante.
+- **Espacios dobles en el nombre del sector** (Maná, "101 - 103 - 105 - 107  (Menores +12)",
+  16:37, 28-oct-2026): el catálogo (`App`) trae el doble espacio y la lista en pantalla lo
+  muestra con uno; `JS_ELEGIR_SECTOR` comparaba tal cual y falló con "el sector no aparece o
+  no se pudo abrir". Ahora iguala los espacios. Verificado en vivo: abrió el sector y eligió
+  la sección "101 (+12)" por la palabra "101".
+- **Platea E de Maná** (16:3x, 28-oct-2026, `probar_reserva.py`): el "+" se frenó en 1 y
+  "Buscar mejores asientos" dijo "No hay asientos libres para esta sección" ni para 1. El
+  catálogo la daba disponible. No retuvo nada.
+- **Espacios duros (`\xa0`)**: Ticketmaster los mete al azar en sus frases. Maná, misma
+  pantalla del seguro: a las 15:40 fue bien y a las 15:52 "pantalla desconocida" con 1 boleta
+  retenida. `PaginaSelenium.texto()` los cambia por espacios y `JS_CLIC_TEXTO` iguala los
+  espacios antes de comparar; el seguro se reconoce por el título **o** por "Continuar sin
+  seguro". Cualquier frase nueva que se busque debe pasar por `texto()`, no por
+  `innerText` crudo.
+- **Portada nueva con "Comprar entradas"** (Bunbury, 28-oct-2026, verificado en vivo):
+  `button.pk-buy` despliega la tarjeta de la fecha con su "Ver entradas". `abrir_mapa()` lo
+  pulsa solo si no hay ya "Ver entradas" ni "Seleccionar sector". Antes fallaba a los 15 s
+  con "la pagina no mostro 'Ver entradas'".
+- **Varias tarifas en un sector** (Maná, Preferencial, 28-oct-2026): "Entrada ET1 |
+  Descuento Compensar" y "Entrada | Etapa 1". Cada una es una fila `.pk-rate.rateOption`
+  con `aria-valuenow`, `.pk-rate-name` y su propio `button.plus`. El `JS_SUMAR` viejo (un
+  solo "+", buscado subiendo desde el título) no encontraba nada y la reserva falló con "el
+  selector no pasa de 0". Ahora `fijar_cantidad()` elige fila con `elegir_tarifa()` (la
+  primera que no sea de descuento/convenio, `RE_TARIFA_RESTRINGIDA`) y usa su "+" y su
+  contador; sin filas, sigue el formato viejo. Verificado en vivo hasta el "+" (marcó 2 en
+  Etapa 1); el Continuar con dos tarifas aún no.
+- **Cambiar los sectores de `RESERVAR_TICKETMASTER` no reprueba lo ya visto**: la clave
+  `url@reserva||sector` se apunta para todos los disponibles en cuanto la URL está activada,
+  casen o no. Con Maná se cambió "preferencial" por "platea c" y Platea C nunca se intentó.
+  Hay que quitar su clave (monitor parado).
 - El catálogo **no dice cuántas boletas quedan**: solo `lowAvailability` y `max: 4` en
   la tarifa (ningún sector de Vives tenía cupo bajo para probarlo).
 - **Cuando no hay las pedidas** (verificado en vivo, Iron Maiden, sector 107, 1-oct-2026):
@@ -266,6 +333,62 @@ toca ningún medio de pago ni escribe datos de tarjeta.
 - **Sin verificar en vivo**: el caso de menos de 4 boletas (la bajada 4→3→2→1 solo
   está probada con una página simulada) y el texto exacto del aviso de "no hay
   boletas".
+
+## Eleventickets (Final Sudamericana): lo que ya se sabe
+
+`reserva_eleventickets.py` añade al carrito hasta 4 entradas en el Comet de reserva y
+**para ahí**: nunca entra al carrito ni al pago. Leído el 28-oct-2026 contra la página real.
+
+- En el monitor: `verificar_disponibilidad_eleventickets()` lee los bloques del mapa (una
+  carga por ronda, como siempre); disponibles = bloques **habilitados**, no bloques con cupo.
+  `RESERVAR_ELEVENTICKETS` (URL → `maximo`, `sectores`) dispara
+  `intentar_reserva_eleventickets()` cuando un bloque que casa aparece habilitado por primera
+  vez (clave `url@reserva||bloque`); entonces prueba **todos** los habilitados que casan. Un
+  bloque que sigue habilitado no se reintenta en cada ronda: vuelve a contar tras 3 lecturas
+  sin verlo. `reservar_eleventickets.py` hace lo mismo a mano, una vez.
+- El evento en `FILTROS_LOCALIDADES` lleva `["CAT2 - Oriental"]`: sin filtro avisaría de
+  los 90 bloques.
+
+- Cloudflare muestra "Un momento… Verificación de seguridad" a navegadores nuevos (el
+  navegador integrado de Claude se quedó ahí). En el Comet de reserva pasó sola a las 13:05
+  del 28-oct-2026, pero a las 14:36 (primer disparo real desde el monitor) se quedó parada
+  30 s y la reserva falló con "el mapa no cargo": el permiso de Cloudflare caduca. Ahora
+  `abrir()` la reconoce, espera `ESPERA_VERIFICACION` (45 s) por si pasa sola y, si no,
+  deja la pestaña abierta (`conservar_pestana`, apuntada en `_PESTANA_VERIFICACION`) y lo
+  dice en el Telegram: hay que pasarla a mano en el Comet. No se intenta saltarla. Luego,
+  una vez por ronda, `reintentar_tras_verificacion()` **mira** esa pestaña (solo JS, sin
+  recargar ni pedir nada): mientras siga la verificación no hace nada ni abre otra; en
+  cuanto se ve el mapa, reserva ahí mismo (`PaginaSelenium(ya_cargada=True)`). Así el
+  reintento no añade cargas y nunca llega antes de que el usuario haya pasado la verificación. El Chrome del monitor también la tuvo (dos
+  lecturas vacías) y pasó sola. La extensión Claude in Chrome tiene **bloqueado por política** ejecutar JS y
+  capturar en este sitio: se inspecciona con Selenium sobre el Comet de reserva.
+- AngularJS + Leaflet. Cada sector es una capa SVG con `capa.dados` (`dscbloco` = nombre,
+  `disabled` 1 = no pulsable, `m`). CAT2 - Oriental = 41 bloques (Tribuna Alta/Media/Baja,
+  Sector 1-15). Al abrir la venta solo estaban habilitados Alta 5-9.
+- `m >= 2`: productos (`.ingressos`, plantilla `Siwprodutoslistagem`), "+" =
+  `button.botao-soma` (se deshabilita en `limite_prod`), "Agotado" =
+  `span.ingresso-esgotado`, "Añadir al Carrito de Compras" = `button.botao-avancar`. El
+  producto de CAT2 Oriental se llama "Público Colombiano". `m == 1` = asientos numerados
+  (uno por clic); antes de abrir, los 90 bloques decían `m = "1"`, pero al abrir mostraron
+  productos con "+".
+- Reservar es `POST tickets/booking`, sin reCAPTCHA. Éxito: `$rootScope.qtdReserva` sube.
+  Errores y diálogos son **ngDialog** (`.ngdialog-content`), no `md-dialog`: el primer
+  intento real solo miraba `md-dialog` y dio "sin respuesta en 15s". El código 1111 hace que
+  la página resuelva sola una prueba de trabajo (`$rootScope.powProcessing`) y repita la
+  petición: se espera `ESPERA_COMPRA` (60 s). Una respuesta de fila recarga la página.
+- **El "+" no dice cuántas quedan**: deja subir a 4 aunque haya menos, y al añadir el
+  servidor contesta "¡El producto está agotado!" (diálogo "Atención", visto por Aldemar,
+  28-oct-2026, pidiendo 2). Por eso, ante un rechazo de cupo (`RE_SIN_CUPO`) se repite en el
+  mismo bloque con una menos (4 → 3 → 2 → 1) y luego se pasa al siguiente; sin respuesta o
+  con la página recargada no se insiste. La cantidad rechazada sigue marcada: se baja con
+  `button.botao-subtracao`. El bot no reintenta ni espera a que se libere cupo: una pasada.
+- Comprobar el carrito del servidor (solo lectura):
+  `Common.ajaxmg('SuperIngressoWeb', 'getCarrinhoQtdReservados', [])`.
+- **Sin verificar**: un "Añadir" que funcione (los dos intentos del 28-oct-2026 no dejaron
+  nada en el carrito y no se vio por qué) y el flujo de asientos numerados.
+- Comet se actualizó a 155: hizo falta bajar chromedriver 155 con Selenium Manager
+  (`selenium-manager.exe --driver chromedriver --browser-version 155`). Sin él falla también
+  la reserva de Ticketmaster.
 
 ## TaquillaLive: lo que ya se sabe
 
