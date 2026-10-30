@@ -18,13 +18,13 @@ boletas, detecta cuándo aparecen localidades disponibles y avisa por **Telegram
 - Te avisa también si una boletera responde con una verificación anti-bot (el
   monitor no puede leer ese sitio mientras dure) o con una sala de espera (la venta
   abrió y hay fila).
-- Si Chrome se cierra o se cae, **lo vuelve a abrir solo** (con el mismo perfil, así
+- Si Comet se cierra o se cae, **lo vuelve a abrir solo** (con el mismo perfil, así
   que conserva tus sesiones) y te avisa con un único mensaje: "lo relancé". Tarda unos
   segundos. Si no consigue recuperarlo, te avisa de que el monitor está **ciego** y
   sigue intentándolo: reconexión cada 30 s, relanzamiento como mucho cada 5 min. Si
-  solo se perdió la conexión y Chrome seguía abierto, reconecta sin molestarte.
-  Mientras tanto no visita ninguna boletera: los intentos son contra el propio Chrome.
-- Se conecta a una ventana de Chrome **que ya tienes abierta y con sesión iniciada**,
+  solo se perdió la conexión y Comet seguía abierto, reconecta sin molestarte.
+  Mientras tanto no visita ninguna boletera: los intentos son contra el propio Comet.
+- Se conecta a una ventana de Comet **que ya tienes abierta y con sesión iniciada**,
   en lugar de abrir un navegador nuevo. Esto reutiliza tus cookies y reduce mucho la
   probabilidad de que las plataformas detecten la automatización.
 
@@ -40,7 +40,7 @@ boletas, detecta cuándo aparecen localidades disponibles y avisa por **Telegram
   su propia sesión de Ticketmaster; ver `RESERVA_PUERTO_DEPURACION`.
   En el resto de plataformas la compra es a mano, en **otra pestaña**: la pestaña del
   bot cambia de página en cada consulta y te la quitaría de las manos.
-- No inicia sesión por ti. Debes estar logueado previamente en el perfil de Chrome
+- No inicia sesión por ti. Debes estar logueado previamente en el perfil de Comet
   que usa el monitor.
 - No envía WhatsApp. Ese canal existió (vía CallMeBot) y se retiró; el único canal
   de notificación es Telegram.
@@ -58,7 +58,7 @@ boletas, detecta cuándo aparecen localidades disponibles y avisa por **Telegram
 ## Requisitos
 
 - Python 3.10 o superior (probado con 3.12)
-- Google Chrome instalado
+- Comet instalado
 - Un bot de Telegram propio (lo creas con [@BotFather](https://t.me/BotFather))
 - Cuenta ya registrada en las plataformas que vayas a monitorear
 
@@ -126,20 +126,20 @@ Reglas del filtro:
 
 ## Uso
 
-**Paso 1** — Lanza el monitor. Si Chrome no está abierto en modo debug, lo abre él
-mismo (una ventana aparte, con un perfil propio en `C:\selenium\ChromeProfile`):
+**Paso 1** — Lanza el monitor. Si Comet no está abierto en modo debug, lo abre él
+mismo (una ventana aparte, con un perfil propio en `C:\selenium\CometMonitorProfile`):
 
 ```bash
 python "main13_filters_all_urls lina.py"
 ```
 
-**Paso 2** — La primera vez, inicia sesión en esa ventana de Chrome en las
+**Paso 2** — La primera vez, inicia sesión en esa ventana de Comet en las
 plataformas que vayas a monitorear. El perfil la conserva mientras la plataforma no la caduque.
 
-`iniciar_chrome_debug.bat` sigue sirviendo si prefieres abrir Chrome a mano antes.
+`iniciar_comet_monitor.bat` sirve si prefieres abrir Comet a mano antes.
 
 El script imprime el progreso en consola y no se detiene solo: córtalo con `Ctrl+C`.
-Si cierras la ventana de Chrome con el monitor en marcha, la volverá a abrir: para
+Si cierras la ventana de Comet con el monitor en marcha, la volverá a abrir: para
 parar de verdad, detén primero el monitor.
 
 ## Pruebas
@@ -152,16 +152,16 @@ ni tu registro: todo va a carpetas temporales.
 python -m unittest discover -s tests -v
 ```
 
-Hay dos pruebas contra el Chrome real, desactivadas por defecto. Necesitan el monitor
-**detenido**, porque comparten la ventana de Chrome:
+Hay dos pruebas contra el Comet real, desactivadas por defecto. Necesitan el monitor
+**detenido**, porque comparten la ventana de Comet:
 
 ```bash
 set MONITOR_PRUEBAS_CHROME=1
 python -m unittest discover -s tests -p "test_chrome_real.py" -v
 ```
 
-Con `MONITOR_PRUEBAS_RELANZAR=1` se activa además la que **cierra** el Chrome del
-monitor para comprobar que se relanza solo. Solo toca el Chrome del perfil del
+Con `MONITOR_PRUEBAS_RELANZAR=1` se activa además la que **cierra** el Comet del
+monitor para comprobar que se relanza solo. Solo toca el Comet del perfil del
 monitor, nunca tu navegador normal.
 
 Que los avisos **lleguen de verdad** a tu Telegram no lo comprueban las pruebas de
@@ -173,14 +173,14 @@ python probar_telegram.py
 ```
 
 Sin argumentos envía un aviso de disponibilidad de ejemplo; con `todos`, también los
-de Chrome relanzado y de bloqueo. Van marcados como prueba. No abre Chrome ni visita
+de Comet relanzado y de bloqueo. Van marcados como prueba. No abre Comet ni visita
 boleteras.
 
 ## Cómo funciona por dentro
 
 ```
-iniciar_chrome_debug.bat
-        │  abre Chrome con --remote-debugging-port=9222
+iniciar_comet_monitor.bat
+        │  abre Comet con --remote-debugging-port=9224
         ▼
 conectar_chrome()  ──► Selenium se ancla a esa ventana (no abre una nueva)
         │
@@ -288,7 +288,7 @@ Documentadas a propósito, para que no sorprendan:
 - Este es un repositorio **público**: una credencial subida por error queda indexada
   y es recogida por bots en minutos. Si pasa, rota el token de inmediato.
 - El monitor no necesita —ni usa— las contraseñas de las plataformas: la sesión vive
-  en el perfil de Chrome.
+  en el perfil de Comet.
 
 ## Aviso
 

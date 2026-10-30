@@ -24,8 +24,9 @@ Antes de cada `git add`, revisar `git status` y confirmar que ninguno aparece.
 
 ## Ejecución y pruebas
 
-El script necesita Chrome en modo debug (`iniciar_chrome_debug.bat`, puerto 9222) y
-sesión ya iniciada en las plataformas. Se lanza así:
+El script necesita Comet en modo debug (`iniciar_comet_monitor.bat`, puerto 9224; si no
+está abierto, el monitor lo abre solo) y sesión ya iniciada en las plataformas que la
+exijan. Se lanza así:
 
 ```bash
 python "main13_filters_all_urls lina.py"
@@ -333,6 +334,28 @@ toca ningún medio de pago ni escribe datos de tarjeta.
 - **Sin verificar en vivo**: el caso de menos de 4 boletas (la bajada 4→3→2→1 solo
   está probada con una página simulada) y el texto exacto del aviso de "no hay
   boletas".
+
+## Navegadores: solo Comet, en dos instancias
+
+Desde el 30-oct-2026 el bot no usa Google Chrome: Bitdefender lo detecta en el equipo de la
+empresa de Aldemar. Donde este archivo habla del "Chrome del monitor" en hechos anteriores a esa
+fecha, se refiere a aquel navegador.
+
+- **Monitor**: puerto 9224, perfil `C:\selenium\CometMonitorProfile`
+  (`PUERTO_DEPURACION`, `PERFIL_NAVEGADOR`). **Reserva**: puerto 9223, perfil
+  `C:\selenium\CometProfile`. Son dos a propósito: relanzar el del monitor no se lleva por
+  delante una reserva retenida, y el monitor no comparte ventana con las pestañas de reserva.
+- No se reutiliza el 9222 del Chrome viejo: con uno de esos abierto, el monitor se engancharía
+  a él sin que nadie lo notara.
+- `_driver_en_puerto()` conecta los dos con el chromedriver de la versión de Comet. Comet se
+  actualiza solo: si no hay driver de su versión mayor en caché, `_descargar_chromedriver()` lo
+  baja con Selenium Manager (solo verificado con la 155, ya en caché).
+- Lectura de prueba en el perfil nuevo, sin sesión (30-oct-2026): Tuboleta se lee bien sin
+  iniciar sesión (Ryan Castro dio 3 disponibles y 5 agotadas, y en el Chrome viejo salía
+  `LECTURA VACIA` en cada ronda). Cloudflare en Eleventickets pasó solo, pero la página cae en la
+  portada "VENTA DE ENTRADAS EN BREVE" con "Iniciar Sesión" y no se ve el mapa (0 bloques), cuando
+  el Chrome con sesión veía 2 + 88. Sospecha, sin comprobar: hace falta iniciar sesión también en
+  este perfil. Hay que iniciarla a mano y comprobarlo antes de darlo por bueno.
 
 ## Eleventickets (Final Sudamericana): lo que ya se sabe
 

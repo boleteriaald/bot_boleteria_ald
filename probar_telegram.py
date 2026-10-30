@@ -5,11 +5,11 @@ A diferencia de las pruebas de tests/, que sustituyen el envio por un doble,
 esta usa tu config.py y tu bot de verdad, porque lo que comprueba es justamente
 que el mensaje llegue al telefono.
 
-No abre Chrome ni visita ninguna boletera.
+No abre Comet ni visita ninguna boletera.
 
 Uso:
     python probar_telegram.py          # un aviso de disponibilidad de ejemplo
-    python probar_telegram.py todos    # ademas, los avisos de Chrome y de bloqueo
+    python probar_telegram.py todos    # ademas, los avisos de Comet y de bloqueo
 """
 import importlib.util
 import sys
@@ -36,8 +36,8 @@ AVISO_DISPONIBILIDAD = (
 )
 
 AVISO_CHROME = (
-    "🧪 PRUEBA DEL BOT (Chrome no se cayo, es un ensayo)" + SALTO * 2
-    + "🔄 Chrome se cerró o dejó de responder y lo relancé automáticamente. "
+    "🧪 PRUEBA DEL BOT (Comet no se cayo, es un ensayo)" + SALTO * 2
+    + "🔄 Comet se cerró o dejó de responder y lo relancé automáticamente. "
     + "El monitor vuelve a vigilar (8 s sin conexión)." + SALTO * 2
     + f"⏰ {HORA}"
 )
@@ -53,7 +53,7 @@ AVISO_BLOQUEO = (
 
 mensajes = [("aviso de disponibilidad", AVISO_DISPONIBILIDAD)]
 if len(sys.argv) > 1 and sys.argv[1] == "todos":
-    mensajes += [("aviso de Chrome relanzado", AVISO_CHROME), ("aviso de bloqueo", AVISO_BLOQUEO)]
+    mensajes += [("aviso de Comet relanzado", AVISO_CHROME), ("aviso de bloqueo", AVISO_BLOQUEO)]
 
 print("=" * 70)
 print("PRUEBA DEL CANAL DE TELEGRAM")

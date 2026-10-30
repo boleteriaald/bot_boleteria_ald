@@ -342,7 +342,7 @@ def mensaje(reserva, evento, url, hora):
             texto += f"💰 Total: {reserva.total}\n"
         if reserva.expira:
             texto += f"⏳ La reserva vence en {reserva.expira}\n"
-        return (texto + "\nLa pestana de pago esta abierta en Chrome. Elige el medio de pago y paga.\n"
+        return (texto + "\nLa pestana de pago esta abierta en Comet. Elige el medio de pago y paga.\n"
                 f"🔗 {url}\n\n⏰ {hora}")
     texto = f"⚠️ NO PUDE RESERVAR\n\n📌 {evento}\n"
     if reserva.sector:

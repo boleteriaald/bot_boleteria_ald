@@ -5,10 +5,10 @@ Visita UNA sola vez la URL indicada, muestra las localidades disponibles y
 agotadas, y aplica el filtro configurado para esa URL. No envia nada por
 Telegram y no toca el bucle de monitoreo.
 
-Requisito: Chrome en modo debug ya abierto (iniciar_chrome_debug.bat).
+Requisito: Comet en modo debug ya abierto (iniciar_comet_monitor.bat).
 
 No lo ejecutes con el monitor corriendo: los dos manejan la misma pestana de
-Chrome y se pisan, y el resultado mezcla paginas de uno y otro.
+Comet y se pisan, y el resultado mezcla paginas de uno y otro.
 
 Uso:
     python probar_ticketmaster.py
@@ -32,7 +32,7 @@ print(f"URL: {url}")
 
 driver = monitor.conectar_chrome()
 if not driver:
-    sys.exit("No se pudo conectar a Chrome. Ejecuta primero iniciar_chrome_debug.bat")
+    sys.exit("No se pudo conectar a Comet. Ejecuta primero iniciar_comet_monitor.bat")
 
 disponibles, agotadas, url_final = monitor.verificar_disponibilidad_ticketmaster(driver, url)
 

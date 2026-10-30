@@ -15,6 +15,7 @@ from selenium.common.exceptions import NoSuchElementException, TimeoutException,
 from selenium.webdriver.chrome.options import Options
 from selenium.webdriver.chrome.service import Service
 from selenium.webdriver.common.by import By
+from selenium.webdriver.common.selenium_manager import SeleniumManager
 from selenium.webdriver.support import expected_conditions as EC
 from selenium.webdriver.support.ui import WebDriverWait
 from telegram import Bot
@@ -369,7 +370,7 @@ def navegar(driver, url):
 
 
 def puerto_depuracion_activo(puerto=None):
-    """Indica si un Chrome responde en su puerto de depuracion. Consulta local, milisegundos."""
+    """Indica si un Comet responde en su puerto de depuracion. Consulta local, milisegundos."""
     try:
         with urllib.request.urlopen(f"http://127.0.0.1:{puerto or PUERTO_DEPURACION}/json/version", timeout=2):
             return True
@@ -379,54 +380,48 @@ def puerto_depuracion_activo(puerto=None):
 
 def conectar_chrome():
     """
-    Conecta Selenium al Chrome del monitor, o devuelve None si no es posible.
+    Conecta Selenium al Comet del monitor, o devuelve None si no es posible.
 
     Antes de pedirle a chromedriver que se enganche se comprueba que el puerto
-    de depuracion responda. Es imprescindible: contra un Chrome cerrado, cada
+    de depuracion responda. Es imprescindible: contra un Comet cerrado, cada
     intento de chromedriver tarda 63 segundos en fallar (medido). Antes se
     hacian 10 intentos seguidos, asi que el bot pasaba mas de 10 minutos ciego
-    antes de rendirse, tambien al arrancar con Chrome cerrado.
+    antes de rendirse, tambien al arrancar con Comet cerrado.
     """
     limite = time.time() + ESPERA_ARRANQUE_CHROME
     while not puerto_depuracion_activo():
         if time.time() >= limite:
-            print("✗ Chrome no responde en el puerto de depuración")
-            log.error("Chrome no responde en el puerto de depuracion")
+            print("✗ Comet no responde en el puerto de depuración")
+            log.error("Comet no responde en el puerto de depuracion")
             return None
-        print("⏳ Esperando a que Chrome responda...")
+        print("⏳ Esperando a que Comet responda...")
         time.sleep(2)
 
     try:
-        chrome_options = Options()
-        chrome_options.add_experimental_option("debuggerAddress", f"127.0.0.1:{PUERTO_DEPURACION}")
-        driver = webdriver.Chrome(options=chrome_options)
-        # Ningun execute_script puede bloquear el bucle indefinidamente:
-        # si tarda mas de la cuenta, Selenium lanza TimeoutException.
-        driver.set_script_timeout(TIEMPO_MAXIMO_SCRIPT)
-        driver.set_page_load_timeout(TIEMPO_MAXIMO_CARGA)
-        print("✓ Conectado a Chrome")
-        log.info("Conectado a Chrome")
+        driver, _ = _driver_en_puerto(PUERTO_DEPURACION)
+        print("✓ Conectado a Comet")
+        log.info("Conectado a Comet")
         return driver
     except Exception as e:
-        print(f"✗ Error al conectar a Chrome: {e}")
-        log.error(f"No se pudo conectar a Chrome: {e}")
+        print(f"✗ Error al conectar a Comet: {e}")
+        log.error(f"No se pudo conectar a Comet: {e}")
         return None
 
 
 def sesion_viva(driver):
     """
-    Indica si la sesion con Chrome sigue utilizable.
+    Indica si la sesion con Comet sigue utilizable.
 
     Hace falta preguntarlo activamente: los detectores capturan cualquier error
-    y devuelven listas vacias, asi que cuando Chrome muere el bucle no ve ninguna
+    y devuelven listas vacias, asi que cuando Comet muere el bucle no ve ninguna
     excepcion, solo URLs "sin nada" ronda tras ronda. Asi se acumularon 302
     errores de "invalid session id" el 10/09 sin que el monitor se recuperara.
 
-    Es una consulta local a Chrome, no una visita a ninguna pagina. Se captura
+    Es una consulta local a Comet, no una visita a ninguna pagina. Se captura
     cualquier excepcion a proposito: si el que murio es chromedriver, el error
     no es de Selenium sino de la conexion HTTP local.
     """
-    # Si Chrome no responde en su puerto, la sesion esta muerta: no se pregunta a
+    # Si Comet no responde en su puerto, la sesion esta muerta: no se pregunta a
     # chromedriver, que tardaria hasta un minuto en darse cuenta.
     if not puerto_depuracion_activo():
         return False
@@ -438,7 +433,7 @@ def sesion_viva(driver):
 
 
 def soltar_sesion(driver):
-    """Cierra el chromedriver de una sesion muerta sin cerrar Chrome."""
+    """Cierra el chromedriver de una sesion muerta sin cerrar Comet."""
     try:
         driver.service.stop()
     except Exception:
@@ -446,8 +441,8 @@ def soltar_sesion(driver):
 
 
 def buscar_chrome():
-    """Devuelve la ruta de chrome.exe, o None si no esta en ninguna ruta conocida."""
-    for ruta in RUTAS_CHROME:
+    """Devuelve la ruta de comet.exe, o None si no esta en ninguna ruta conocida."""
+    for ruta in RUTAS_NAVEGADOR:
         if ruta and os.path.isfile(ruta):
             return ruta
     return None
@@ -455,44 +450,44 @@ def buscar_chrome():
 
 def lanzar_chrome():
     """
-    Abre Chrome en modo depuracion, igual que iniciar_chrome_debug.bat.
+    Abre Comet en modo depuracion, igual que iniciar_comet_monitor.bat.
 
     Devuelve True si se pudo lanzar; eso no garantiza que ya responda, de eso
     se encarga conectar_chrome().
 
     Se lanza con "start", igual que el .bat: el comando vuelve al instante y
-    Chrome queda como proceso independiente, asi que sigue abierto aunque se
+    Comet queda como proceso independiente, asi que sigue abierto aunque se
     detenga el monitor con Ctrl+C.
     """
     ruta = buscar_chrome()
     if not ruta:
-        print("   ✗ No se encontró chrome.exe para relanzarlo")
-        log.error("No se encontro chrome.exe para relanzarlo")
+        print("   ✗ No se encontró comet.exe para relanzarlo")
+        log.error("No se encontro comet.exe para relanzarlo")
         return False
     try:
         subprocess.run(
             ["cmd", "/c", "start", "", ruta,
-             f"--remote-debugging-port={PUERTO_DEPURACION}", f"--user-data-dir={PERFIL_CHROME}"],
+             f"--remote-debugging-port={PUERTO_DEPURACION}", f"--user-data-dir={PERFIL_NAVEGADOR}"],
             stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=15, check=True,
         )
     except (OSError, subprocess.SubprocessError) as e:
-        print(f"   ✗ No se pudo relanzar Chrome: {e}")
-        log.error(f"No se pudo relanzar Chrome: {e}")
+        print(f"   ✗ No se pudo relanzar Comet: {e}")
+        log.error(f"No se pudo relanzar Comet: {e}")
         return False
-    print("   🔄 Chrome relanzado")
-    log.warning(f"Chrome relanzado automaticamente: {ruta}")
+    print("   🔄 Comet relanzado")
+    log.warning(f"Comet relanzado automaticamente: {ruta}")
     return True
 
 
 def recuperar_sesion(driver):
     """
-    Recupera la sesion con Chrome y devuelve una nueva, relanzando Chrome si
+    Recupera la sesion con Comet y devuelve una nueva, relanzando Comet si
     hace falta.
 
     Avisos por Telegram:
-    - Si reconecta al primer intento (solo se perdio la sesion, Chrome seguia
+    - Si reconecta al primer intento (solo se perdio la sesion, Comet seguia
       abierto), no se avisa: queda en el registro.
-    - Si Chrome estaba caido y el relanzamiento lo recupera, un solo mensaje
+    - Si Comet estaba caido y el relanzamiento lo recupera, un solo mensaje
       diciendo que se relanzo.
     - Si no se recupera, aviso de que el monitor esta CIEGO; se sigue intentando
       (reconexion cada ESPERA_RECONEXION, relanzamiento cada
@@ -500,15 +495,15 @@ def recuperar_sesion(driver):
 
     No reintenta ninguna URL, asi que no anade ninguna visita a las boleteras.
     """
-    print("\n✗ Se perdió la sesión con Chrome. Reconectando...")
-    log.error("Sesion con Chrome perdida, reconectando")
+    print("\n✗ Se perdió la sesión con Comet. Reconectando...")
+    log.error("Sesion con Comet perdida, reconectando")
     soltar_sesion(driver)
 
-    # Chrome sigue vivo (solo se perdio la sesion): basta con reconectar.
+    # Comet sigue vivo (solo se perdio la sesion): basta con reconectar.
     if puerto_depuracion_activo():
         nuevo = conectar_chrome()
         if nuevo:
-            log.info("Sesion con Chrome recuperada al primer intento")
+            log.info("Sesion con Comet recuperada al primer intento")
             return nuevo
 
     inicio = time.time()
@@ -527,20 +522,20 @@ def recuperar_sesion(driver):
 
         if not aviso_caida_enviado:
             aviso_caida_enviado = enviar_notificacion(
-                "⚠️ El monitor perdió la conexión con Chrome y está CIEGO: "
-                "no puede ver disponibilidad hasta que Chrome vuelva."
+                "⚠️ El monitor perdió la conexión con Comet y está CIEGO: "
+                "no puede ver disponibilidad hasta que Comet vuelva."
                 + chr(10) + chr(10)
                 + "Intenté relanzarlo y no respondió. Sigo reintentando: reconexión "
                 + f"cada {ESPERA_RECONEXION} s y relanzamiento cada "
-                + f"{INTERVALO_RELANZAMIENTO // 60} min. Si hay un Chrome abierto con el "
+                + f"{INTERVALO_RELANZAMIENTO // 60} min. Si hay un Comet abierto con el "
                 + "perfil del monitor sin modo debug, ciérralo."
                 + chr(10) + chr(10)
                 + f"⏰ {time.strftime('%H:%M:%S')}"
             )
-        print(f"   Chrome no responde. Nuevo intento en {ESPERA_RECONEXION} s...")
+        print(f"   Comet no responde. Nuevo intento en {ESPERA_RECONEXION} s...")
         time.sleep(ESPERA_RECONEXION)
 
-        # Solo se intenta si Chrome ya contesta (p. ej. lo abrio el usuario).
+        # Solo se intenta si Comet ya contesta (p. ej. lo abrio el usuario).
         if puerto_depuracion_activo():
             nuevo = conectar_chrome()
             if nuevo:
@@ -549,15 +544,15 @@ def recuperar_sesion(driver):
 
 
 def avisar_recuperacion(inicio, aviso_caida_enviado, relanzado):
-    """Registra y avisa por Telegram de que el monitor vuelve a tener Chrome."""
+    """Registra y avisa por Telegram de que el monitor vuelve a tener Comet."""
     segundos = int(time.time() - inicio)
     duracion = f"{segundos} s" if segundos < 120 else f"{segundos // 60} min"
-    log.info(f"Sesion con Chrome recuperada tras {duracion} sin conexion (relanzado={relanzado})")
+    log.info(f"Sesion con Comet recuperada tras {duracion} sin conexion (relanzado={relanzado})")
     if aviso_caida_enviado:
-        texto = f"✅ Conexión con Chrome recuperada tras {duracion}. El monitor vuelve a vigilar."
+        texto = f"✅ Conexión con Comet recuperada tras {duracion}. El monitor vuelve a vigilar."
     else:
         texto = (
-            "🔄 Chrome se cerró o dejó de responder y lo relancé automáticamente. "
+            "🔄 Comet se cerró o dejó de responder y lo relancé automáticamente. "
             f"El monitor vuelve a vigilar ({duracion} sin conexión)."
         )
     enviar_notificacion(
@@ -722,7 +717,7 @@ def avisar_bloqueo(estado_bloqueo, url, motivo):
             + f"Motivo: {motivo}" + chr(10)
             + f"URL: {url}" + chr(10) + chr(10)
             + "El monitor NO puede leer disponibilidad en este sitio mientras dure. "
-            + "Abre la ventana de Chrome y resuelve la verificacion a mano."
+            + "Abre la ventana de Comet y resuelve la verificacion a mano."
             + chr(10) + chr(10)
             + f"Hora: {time.strftime('%H:%M:%S')}"
     )
@@ -1837,11 +1832,10 @@ PAUSA_TRAS_DISPONIBILIDAD = 5  # Segundos
 # la pantalla de pago y avisa por Telegram: el pago lo hace siempre el usuario.
 # Vacio = el monitor se comporta como siempre (solo observa y notifica).
 #
-# Navegador donde se reserva: puerto de depuracion de un navegador APARTE del que
-# vigila (Comet, con su propio perfil y sesion de Ticketmaster; se abre con
-# iniciar_comet_debug.bat). Hace falta cuando el Chrome del monitor no carga bien
-# el mapa y el login (p. ej. por el antivirus). None = se reserva en una pestana
-# nueva del propio Chrome del monitor.
+# Navegador donde se reserva: puerto de depuracion de un Comet APARTE del que vigila,
+# con su propio perfil y sesiones (se abre con iniciar_comet_debug.bat). Asi, relanzar
+# el del monitor nunca se lleva por delante una reserva retenida. None = se reserva en
+# una pestana nueva del propio Comet del monitor.
 RESERVA_PUERTO_DEPURACION = 9223
 
 RESERVAR_TICKETMASTER = {
@@ -1896,26 +1890,26 @@ TIEMPO_MAXIMO_SCRIPT = 20  # Segundos maximos para un execute_script
 # carga normal tarda entre 4 y 6 segundos, asi que 30 deja margen de sobra.
 TIEMPO_MAXIMO_CARGA = 30  # Segundos
 
-# Espera entre intentos de reconexion cuando Chrome no responde. Los intentos
-# son locales (127.0.0.1:9222): no visitan ninguna boletera.
+# Espera entre intentos de reconexion cuando Comet no responde. Los intentos
+# son locales (127.0.0.1): no visitan ninguna boletera.
 ESPERA_RECONEXION = 30  # Segundos
 
-# Tiempo maximo esperando a que Chrome abra su puerto de depuracion tras
+# Tiempo maximo esperando a que Comet abra su puerto de depuracion tras
 # arrancar. Normalmente tarda 2-5 segundos.
 ESPERA_ARRANQUE_CHROME = 20  # Segundos
 
-# Chrome del monitor, con los mismos parametros que iniciar_chrome_debug.bat.
+# Comet del monitor, con los mismos parametros que iniciar_comet_monitor.bat. Google Comet
+# no se usa: en el equipo de Aldemar lo detecta Bitdefender. No se reutiliza el 9222 del Comet
+# de antes: con uno de esos abierto, el monitor se engancharia a el sin que nadie lo notara.
 # El perfil se arma con os.path.join para no depender de barras invertidas.
-PUERTO_DEPURACION = 9222
-PERFIL_CHROME = os.path.join("C:" + os.sep, "selenium", "ChromeProfile")
-RUTAS_CHROME = [
-    os.path.join(os.environ.get("ProgramFiles", ""), "Google", "Chrome", "Application", "chrome.exe"),
-    os.path.join(os.environ.get("ProgramFiles(x86)", ""), "Google", "Chrome", "Application", "chrome.exe"),
-    os.path.join(os.environ.get("LOCALAPPDATA", ""), "Google", "Chrome", "Application", "chrome.exe"),
+PUERTO_DEPURACION = 9224
+PERFIL_NAVEGADOR = os.path.join("C:" + os.sep, "selenium", "CometMonitorProfile")
+RUTAS_NAVEGADOR = [
+    os.path.join(os.environ.get("LOCALAPPDATA", ""), "Perplexity", "Comet", "Application", "comet.exe"),
 ]
 
-# Como maximo un relanzamiento de Chrome cada 5 minutos durante una caida.
-# Chrome admite una sola instancia por perfil: si hay una abierta con el perfil
+# Como maximo un relanzamiento de Comet cada 5 minutos durante una caida.
+# Comet admite una sola instancia por perfil: si hay una abierta con el perfil
 # del monitor pero SIN el puerto de depuracion, cada relanzamiento solo abre otra
 # ventana en ella y el puerto nunca se activa. Sin este limite, el bot abriria
 # una ventana nueva cada ESPERA_RECONEXION segundos.
@@ -2067,8 +2061,8 @@ def _chromedriver_para(version):
     Ruta de un chromedriver de la misma version mayor que `version` ("153.0.x.y"),
     buscado en la cache de Selenium Manager, o None si no hay.
 
-    Hace falta porque Selenium elige el driver por el Chrome INSTALADO (154 aqui)
-    y Comet va con otro Chromium (153): el driver equivocado no se engancha.
+    Hace falta porque Selenium elige el driver por el navegador instalado por
+    defecto y Comet lleva su propio Chromium: el driver equivocado no se engancha.
     """
     mayor = str(version).split(".")[0]
     cache = os.path.join(os.path.expanduser("~"), ".cache", "selenium", "chromedriver")
@@ -2076,12 +2070,45 @@ def _chromedriver_para(version):
     return candidatos[-1] if candidatos else None
 
 
+def _descargar_chromedriver(version):
+    """
+    Pide a Selenium Manager el chromedriver de esa version mayor, o None si no se pudo.
+    Comet se actualiza solo: sin esto, tras una actualizacion el monitor quedaria ciego.
+    No visita ninguna boletera.
+    """
+    try:
+        gestor = SeleniumManager()
+        ruta = gestor.run([str(gestor.get_binary()), "--driver", "chromedriver", "--browser-version",
+                           str(version).split(".")[0]]).get("driver_path")
+        log.warning(f"Descargado chromedriver para Comet {version}: {ruta}")
+        return ruta
+    except Exception as e:
+        log.error(f"No se pudo descargar chromedriver para Comet {version}: {e}")
+        return None
+
+
+def _driver_en_puerto(puerto):
+    """Engancha Selenium al navegador de ese puerto, con el driver de su version. Devuelve (driver, ruta)."""
+    with urllib.request.urlopen(f"http://127.0.0.1:{puerto}/json/version", timeout=3) as r:
+        version = json.load(r).get("Browser", "").split("/")[-1]
+    ruta = _chromedriver_para(version) or _descargar_chromedriver(version)
+    opciones = Options()
+    opciones.add_experimental_option("debuggerAddress", f"127.0.0.1:{puerto}")
+    servicio = Service(executable_path=ruta) if ruta else Service()
+    driver = webdriver.Chrome(service=servicio, options=opciones)
+    # Ningun execute_script puede bloquear el bucle indefinidamente:
+    # si tarda mas de la cuenta, Selenium lanza TimeoutException.
+    driver.set_script_timeout(TIEMPO_MAXIMO_SCRIPT)
+    driver.set_page_load_timeout(TIEMPO_MAXIMO_CARGA)
+    return driver, ruta
+
+
 def navegador_reserva(driver_monitor):
     """
     Devuelve (driver, motivo_de_fallo) del navegador donde se reserva.
 
     Con RESERVA_PUERTO_DEPURACION se usa un navegador aparte (Comet con el perfil
-    de reserva, ver iniciar_comet_debug.bat); sin el, el propio Chrome del
+    de reserva, ver iniciar_comet_debug.bat); sin el, el propio navegador del
     monitor. El motivo de fallo es texto para el aviso de Telegram.
     """
     puerto = RESERVA_PUERTO_DEPURACION
@@ -2089,7 +2116,7 @@ def navegador_reserva(driver_monitor):
         return driver_monitor, None
 
     # Se mira el puerto antes que nada: contra un navegador cerrado, chromedriver
-    # tarda un minuto en rendirse (medido con Chrome).
+    # tarda un minuto en rendirse (medido).
     if not puerto_depuracion_activo(puerto):
         return None, (f"el navegador de reserva no responde en el puerto {puerto}; "
                       "abre iniciar_comet_debug.bat")
@@ -2103,15 +2130,7 @@ def navegador_reserva(driver_monitor):
             _NAVEGADOR_RESERVA.clear()
 
     try:
-        with urllib.request.urlopen(f"http://127.0.0.1:{puerto}/json/version", timeout=3) as r:
-            version = json.load(r).get("Browser", "").split("/")[-1]
-        ruta = _chromedriver_para(version)
-        opciones = Options()
-        opciones.add_experimental_option("debuggerAddress", f"127.0.0.1:{puerto}")
-        servicio = Service(executable_path=ruta) if ruta else Service()
-        nuevo = webdriver.Chrome(service=servicio, options=opciones)
-        nuevo.set_script_timeout(TIEMPO_MAXIMO_SCRIPT)
-        nuevo.set_page_load_timeout(TIEMPO_MAXIMO_CARGA)
+        nuevo, ruta = _driver_en_puerto(puerto)
     except Exception as e:
         log.exception("RESERVA: no se pudo conectar al navegador de reserva")
         return None, f"no pude conectar al navegador de reserva ({type(e).__name__}); ¿versión de chromedriver?"
@@ -2474,7 +2493,7 @@ def monitorear_urls(driver):
             for idx, url in enumerate(URLS_A_MONITOREAR, 1):
                 print(f"\n[URL {idx}/{len(URLS_A_MONITOREAR)}]")
 
-                # Antes de visitar, se comprueba que Chrome sigue ahi. Si no, se
+                # Antes de visitar, se comprueba que Comet sigue ahi. Si no, se
                 # recupera la sesion y se continua con esta misma URL, que aun no
                 # se habia visitado: no es un reintento.
                 if not sesion_viva(driver):
@@ -2883,7 +2902,7 @@ if __name__ == "__main__":
     print(f"Registro en: {ARCHIVO_LOG}")
 
     if not puerto_depuracion_activo():
-        # Chrome no estaba abierto: se abre como lo haria iniciar_chrome_debug.bat
+        # Comet no estaba abierto: se abre como lo haria iniciar_comet_monitor.bat
         lanzar_chrome()
     driver = conectar_chrome()
     if driver:
@@ -2904,4 +2923,4 @@ if __name__ == "__main__":
             log.info("Monitor finalizado")
     else:
         print("\n✗ Error de conexión")
-        log.error("El monitor no arranco: sin conexion con Chrome")
+        log.error("El monitor no arranco: sin conexion con Comet")
