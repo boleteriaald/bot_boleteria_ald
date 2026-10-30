@@ -53,6 +53,7 @@ TIEMPO_MAXIMO_RESERVA = 300    # Segundos para todo el intento
 
 # Rechazo por falta de cupo: se reintenta en el mismo bloque con menos entradas. El texto real
 # es "¡El producto está agotado!"; lo demas cubre variantes que aun no se han visto.
+RE_LIMITE_CUENTA = re.compile(r"excedido el n.mero l.mite de entradas", re.I)
 RE_SIN_CUPO = re.compile(r"agotad|no hay|sin disponib|no (esta|está) disponible|insuficiente|esgotad", re.I)
 
 
@@ -67,6 +68,7 @@ class Reserva:
     detalle: str = ""
     intentos: list = field(default_factory=list)   # ['CAT2 - ... Sector 3: agotado', ...]
     conservar_pestana: bool = False   # no cerrarla: espera al usuario (verificacion de Cloudflare)
+    completo: bool = False            # el carrito ya tiene el tope: no hay nada mas que intentar
 
 
 def _prioridad(nombre, claves):
@@ -124,9 +126,15 @@ def elegir_juntos(asientos, n):
                 return tanda[-n:]
             if len(tanda) > len(mejor):
                 mejor = list(tanda)
-    if mejor:
-        return mejor[:n]
-    return list(asientos[:n])
+    # Sin n seguidos: la tanda mas larga y, para completar, los sueltos que haya. Aldemar lo pidio
+    # asi el 30-oct-2026, con Occidental libre de a 1: mejor separados que menos de 4.
+    elegidos = mejor[:n]
+    for a in asientos:
+        if len(elegidos) >= n:
+            break
+        if a not in elegidos:
+            elegidos.append(a)
+    return elegidos
 
 
 def _etiqueta(asiento):
@@ -192,7 +200,19 @@ def _reservar_asientos(pagina, bloque, maximo, limite, reloj, intentos):
                    detalle="; ".join(notas), intentos=intentos)
 
 
-def reservar(pagina, sectores, maximo=MAXIMO_POR_COMPRADOR, producto="", reloj=time.time):
+def _sumar(total, parte):
+    """Acumula una reserva parcial de otro bloque en la Reserva total."""
+    if total is None:
+        return parte
+    total.sector += " + " + parte.sector
+    total.cantidad += parte.cantidad
+    total.asientos += parte.asientos
+    if parte.producto and parte.producto not in total.producto:
+        total.producto = f"{total.producto} + {parte.producto}" if total.producto else parte.producto
+    return total
+
+
+def reservar(pagina, sectores, maximo=MAXIMO_POR_COMPRADOR, producto="", reloj=time.time, tope=None):
     """
     Reserva hasta `maximo` entradas en el primer bloque de `sectores` que se deje.
 
@@ -200,6 +220,10 @@ def reservar(pagina, sectores, maximo=MAXIMO_POR_COMPRADOR, producto="", reloj=t
     entradas pasa al siguiente. Se para en cuanto uno reserva al menos una entrada: el
     evento no deja mas de 4 por comprador, asi que no se reparten entre bloques.
     `producto` (opcional) filtra el producto del bloque por nombre.
+
+    Con `tope` (modo completar): se descuenta lo que el servidor ya tiene en el carrito y, si un
+    bloque da menos de lo que falta, se sigue con los siguientes hasta completar. Las entradas
+    pueden quedar en sectores distintos.
     """
     limite = reloj() + TIEMPO_MAXIMO_RESERVA
     if not pagina.abrir():
@@ -207,6 +231,13 @@ def reservar(pagina, sectores, maximo=MAXIMO_POR_COMPRADOR, producto="", reloj=t
         return Reserva(False, pedidas=maximo,
                        detalle="no se pudo abrir el mapa del evento" + (f": {motivo}" if motivo else ""),
                        conservar_pestana=bool(getattr(pagina, "conservar_pestana", False)))
+    if tope:
+        en_carrito = pagina.en_carrito() if hasattr(pagina, "en_carrito") else None
+        if en_carrito is not None:
+            maximo = min(maximo, tope - en_carrito)
+            if maximo <= 0:
+                return Reserva(False, pedidas=0, completo=True,
+                               detalle=f"el carrito ya tiene {en_carrito} entrada(s), el tope es {tope}")
     libres, coinciden = ordenar_bloques(pagina.bloques(), sectores)
     if not coinciden:
         return Reserva(False, pedidas=maximo,
@@ -216,6 +247,8 @@ def reservar(pagina, sectores, maximo=MAXIMO_POR_COMPRADOR, producto="", reloj=t
                        detalle=f"los {len(coinciden)} sectores de {', '.join(sectores)} estan "
                                "deshabilitados en el mapa (venta cerrada o agotados)")
     intentos = []
+    total = None
+    pedidas = maximo
     for bloque in libres:
         if reloj() > limite:
             intentos.append("se acabo el tiempo")
@@ -227,8 +260,24 @@ def reservar(pagina, sectores, maximo=MAXIMO_POR_COMPRADOR, producto="", reloj=t
             resultado = _reservar_asientos(pagina, bloque["nombre"], maximo, limite, reloj, intentos)
         else:
             resultado = _reservar_cantidad(pagina, bloque["nombre"], maximo, producto, intentos)
+        # La cuenta ya llego al tope, contando lo PAGADO, que no sale en el carrito (30-oct-2026, con
+        # 4 CAT2 pagadas y carrito en 0). Ningun otro bloque va a dejar: se para.
+        if intentos and RE_LIMITE_CUENTA.search(intentos[-1]):
+            if total:
+                total.pedidas, total.intentos = pedidas, intentos
+                return total
+            return Reserva(False, pedidas=pedidas, completo=True, intentos=intentos,
+                           detalle="esta cuenta ya llego al limite de entradas por persona")
         if resultado:
-            return resultado
+            if not tope:
+                return resultado
+            total = _sumar(total, resultado)
+            maximo = pedidas - total.cantidad
+            if maximo <= 0:
+                break
+    if total:
+        total.pedidas, total.intentos = pedidas, intentos
+        return total
     return Reserva(False, pedidas=maximo, intentos=intentos,
                    detalle=f"ningun sector de {', '.join(sectores)} se dejo reservar")
 
@@ -283,7 +332,11 @@ return out;
 # manejador de la pagina, que ya comprueba si el bloque esta deshabilitado.
 JS_PULSAR_BLOQUE = _JS_MAPA + """
 var nombre = arguments[0], capa = null;
-M.eachLayer(function (l) { if (!capa && l.dados && l.dados.dscbloco === nombre && !l.dados.idmapa_assento_fis) { capa = l; } });
+var mirar = function (l) { if (!capa && l && l.dados && l.dados.dscbloco === nombre && !l.dados.idmapa_assento_fis) { capa = l; } };
+M.eachLayer(mirar);
+// Al acercarse a un bloque, el mapa quita a sus vecinos de las capas visibles y carga sus asientos:
+// el Sector 315 ya no aparecia tras abrir el 313 (30-oct-2026). Esta lista los tiene todos.
+(window.g_mapa_groupBlocos || []).forEach(mirar);
 if (!capa) { return null; }
 // Los productos del bloque anterior quedan marcados: asi no se confunden con los nuevos.
 document.querySelectorAll('.ingressos').forEach(function (e) { e.setAttribute('data-bot-visto', '1'); });
@@ -291,9 +344,11 @@ var centro = capa.getBounds().getCenter();
 capa.fire('click', {latlng: centro, target: capa});
 if (String(capa.dados.m) === '1') {
     // Los asientos solo se cargan con zoom suficiente (g_mapa_zoom_cadeira).
-    M.fitBounds(capa.getBounds());
+    // Sin animacion y sin fitBounds: este aleja el mapa al terminar su animacion, despues de mirar
+    // el zoom, y en el segundo bloque de una pagina los asientos ya no cargaban (Sector 315 "no
+    // se abrio" en cada pasada, 30-oct-2026, con la pagina recien cargada si abria).
     var zoom = window.g_mapa_zoom_cadeira || 5;
-    if (M.getZoom() < zoom) { M.setView(centro, zoom); }
+    M.setView(centro, Math.max(zoom, M.getZoom()), {animate: false});
     setTimeout(function () { try { mapaAdicionarAssentos(capa); } catch (e) {} }, 800);
 }
 return capa.dados.idmapa_bloco_fis;
@@ -338,6 +393,16 @@ try { inj.get('ngDialog').closeAll(); } catch (e) {}
 try { inj.get('$mdDialog').cancel(); } catch (e) {}
 """
 
+# Entradas en el carrito segun el servidor: qtdReserva puede no haber cargado aun.
+JS_CARRITO = """
+var cb = arguments[arguments.length - 1];
+try {
+    angular.element(document.body).injector().get('Common')
+        .ajaxmg('SuperIngressoWeb', 'getCarrinhoQtdReservados', [])
+        .then(function (r) { cb(Number(r) || 0); }, function () { cb(null); });
+} catch (e) { cb(null); }
+"""
+
 JS_ASIENTOS = _JS_MAPA + """
 var bloque = arguments[0], out = [];
 M.eachLayer(function (l) {
@@ -347,6 +412,12 @@ M.eachLayer(function (l) {
     out.push({id: d.idmapa_assento_fis, fila: d.localizador_fila || '', lugar: d.localizador_lugar || ''});
 });
 return out;
+"""
+
+JS_ASIENTOS_CARGADOS = _JS_MAPA + """
+var bloque = arguments[0], hay = false;
+M.eachLayer(function (l) { if (l.dados && l.dados.idmapa_assento_fis && l.dados.idmapa_bloco_fis === bloque) { hay = true; } });
+return hay;
 """
 
 JS_PULSAR_ASIENTO = _JS_MAPA + """
@@ -459,7 +530,7 @@ class PaginaSelenium:
         self.conservar_pestana = False
         if not self.ya_cargada:
             self.cargar(self.driver, self.url)
-        # Cloudflare a veces se resuelve solo tras unos segundos (el Chrome del monitor lo hizo
+        # Cloudflare a veces se resuelve solo tras unos segundos (el navegador del monitor lo hizo
         # el 28-oct-2026); otras se queda esperando a una persona (el Comet de reserva, la misma
         # tarde, 30 s parado). No se toca: se espera y, si sigue, se deja la pestana al usuario.
         espera = ESPERA_VERIFICACION if self._esperar(self._en_verificacion, 3) else ESPERA_PASO * 2
@@ -478,6 +549,13 @@ class PaginaSelenium:
             return False
         return bool(self._esperar(lambda: self._js(JS_BLOQUES), ESPERA_PASO))
 
+    def en_carrito(self):
+        """Entradas reservadas en el carrito de esta cuenta, o None si no se pudo saber."""
+        try:
+            return self.driver.execute_async_script(JS_CARRITO)
+        except Exception:
+            return None
+
     def bloques(self):
         return self._js(JS_BLOQUES) or []
 
@@ -486,8 +564,11 @@ class PaginaSelenium:
         self.id_bloque = self._js(JS_PULSAR_BLOQUE, nombre) or ""
         if not self.id_bloque:
             return False
+        # Un bloque numerado sin asientos libres tambien "abrio": si solo se esperaran los libres,
+        # se perderian 15 s por bloque (Occidental 313 y 315, 30-oct-2026: todos B, O o R) con
+        # otros bloques esperando, y el aviso diria "no se abrio".
         return bool(self._esperar(
-            lambda: self._js(JS_PRODUCTOS) or self._js(JS_ASIENTOS, self.id_bloque), ESPERA_PASO))
+            lambda: self._js(JS_PRODUCTOS) or self._js(JS_ASIENTOS_CARGADOS, self.id_bloque), ESPERA_PASO))
 
     def productos(self):
         return self._js(JS_PRODUCTOS) or []

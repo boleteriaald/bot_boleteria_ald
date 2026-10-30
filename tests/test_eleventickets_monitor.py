@@ -79,6 +79,61 @@ class TestLectura(CasoMonitor):
         self.assertFalse(self.m.es_url_ticketmaster(URL))
 
 
+class DriverBloqueado(DriverFalso):
+    """El evento dice "Presentación bloqueada"; la home da `home` (ids y si dice "en breve")."""
+
+    def __init__(self, home, bloques_nuevo=None):
+        super().__init__()
+        self.home = home
+        self.bloques_nuevo = bloques_nuevo
+
+    def execute_script(self, script, *args):
+        if script == self.m.JS_PRESENTACION_BLOQUEADA:
+            return URL in self.current_url
+        if script == self.m.JS_EVENTOS_HOME:
+            return self.home
+        if script == re11.JS_BLOQUES:
+            return None if URL in self.current_url else self.bloques_nuevo
+        return None
+
+
+class TestBloqueada(CasoMonitor):
+    """30-oct-2026: el enlace de la venta anterior dice "Presentación bloqueada", sin mapa."""
+
+    def setUp(self):
+        super().setUp()
+        self.m.navegar = lambda driver, url: driver.get(url)
+
+    def driver(self, home, bloques_nuevo=None):
+        d = DriverBloqueado(home, bloques_nuevo)
+        d.m = self.m
+        return d
+
+    def test_venta_en_breve_no_es_lectura_vacia_ni_aviso(self):
+        d = self.driver({"ids": [], "en_breve": True})
+        disponibles, agotadas, url = self.m.verificar_disponibilidad_eleventickets(d, URL)
+        self.assertEqual((disponibles, url), ([], URL))
+        self.assertTrue(agotadas)
+
+    def test_enlace_nuevo_en_la_home_se_lee(self):
+        d = self.driver({"ids": ["def456"], "en_breve": False},
+                        [{"nombre": ORIENTAL, "libre": True, "numerado": False}])
+        disponibles, _, url = self.m.verificar_disponibilidad_eleventickets(d, URL)
+        self.assertEqual(disponibles, [ORIENTAL])
+        self.assertTrue(url.endswith("#!/apresentacao/def456"))
+
+    def test_home_cambiada_sin_enlace_avisa(self):
+        d = self.driver({"ids": [], "en_breve": False})
+        disponibles, _, _ = self.m.verificar_disponibilidad_eleventickets(d, URL)
+        self.assertIn(self.m.MARCADOR_SIN_DETALLE, disponibles[0])
+
+    def test_enlace_nuevo_usa_la_misma_configuracion(self):
+        config = {"maximo": 4, "sectores": ["CAT2"]}
+        self.m.RESERVAR_ELEVENTICKETS = {URL: config}
+        self.assertIs(self.m._config_eleventickets(URL.replace("abc", "def456")), config)
+        self.assertEqual(self.m._config_eleventickets("https://www.ticketmaster.co/event/x"), {})
+
+
 class TestReserva(CasoMonitor):
 
     def setUp(self):
@@ -167,6 +222,43 @@ class TestReserva(CasoMonitor):
         d.window_handles = ["monitor"]
         self.assertIsNone(self.m.reintentar_tras_verificacion(d, URL, "Final"))
         self.assertEqual(self.m._PESTANA_VERIFICACION, {})
+
+    def test_reintentando_los_fallos_avisan_cada_diez_minutos(self):
+        self.m.RESERVAR_ELEVENTICKETS[URL]["reintentar_siempre"] = True
+        self.resultado = re11.Reserva(False, pedidas=4, detalle="agotado")
+        d = DriverFalso()
+        for _ in range(3):
+            self.m.intentar_reserva_eleventickets(d, URL, [ORIENTAL], "Final")
+        self.assertEqual(len(self.llamadas), 3)     # intenta siempre
+        self.assertEqual(len(self.enviados), 1)     # pero avisa una vez
+        self.reloj.ahora += self.m.INTERVALO_RECORDATORIO
+        self.m.intentar_reserva_eleventickets(d, URL, [ORIENTAL], "Final")
+        self.assertEqual(len(self.enviados), 2)
+
+    def test_reintentando_un_exito_avisa_y_frena(self):
+        self.m.RESERVAR_ELEVENTICKETS[URL]["reintentar_siempre"] = True
+        d = DriverFalso()
+        self.m.intentar_reserva_eleventickets(d, URL, [ORIENTAL], "Final")
+        self.m.intentar_reserva_eleventickets(d, URL, [ORIENTAL], "Final")
+        self.assertEqual(len(self.llamadas), 1)
+        self.assertIn("EN EL CARRITO", self.enviados[-1])
+
+    def test_completar_sigue_sin_freno_hasta_el_tope_y_para(self):
+        self.m.RESERVAR_ELEVENTICKETS[URL].update(reintentar_siempre=True, completar=True)
+        self.m._ENTRADAS_CONSEGUIDAS.clear()
+        pedidos = []
+
+        def reservar(pagina, sectores, maximo=4, producto="", reloj=None, tope=None):
+            pedidos.append((maximo, tope))
+            return re11.Reserva(True, ORIENTAL, "General", min(2, maximo), maximo)
+
+        d = DriverFalso()
+        with mock.patch.object(re11, "reservar", reservar):
+            for _ in range(3):
+                self.m.intentar_reserva_eleventickets(d, URL, [ORIENTAL], "Final")
+        self.assertEqual(pedidos, [(4, 4), (2, 4)])      # 2 + 2, y la tercera ya no intenta
+        self.assertIn("Llevas 2 de 4", self.enviados[0])
+        self.assertIn("Llevas 4 de 4", self.enviados[1])
 
     def test_no_repite_tras_un_exito_reciente(self):
         d = DriverFalso()

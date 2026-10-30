@@ -384,6 +384,36 @@ toca ningún medio de pago ni escribe datos de tarjeta.
   `button.botao-subtracao`. El bot no reintenta ni espera a que se libere cupo: una pasada.
 - Comprobar el carrito del servidor (solo lectura):
   `Common.ajaxmg('SuperIngressoWeb', 'getCarrinhoQtdReservados', [])`.
+- **Entre ventas el evento se cierra** (30-oct-2026, 11:20, antes de la venta de las 12): el
+  enlace de la venta anterior responde "Presentación bloqueada" (ngDialog, sin mapa) y la home
+  dice "VENTA DE ENTRADAS EN BREVE", sin enlaces. La sesión también había caducado. Con el
+  evento bloqueado, el lector mira la home (`_buscar_evento_en_home`) y, si publica otro
+  enlace, lo lee con la misma configuración (`_config_eleventickets`); si deja de decir "en
+  breve" sin enlace reconocible, avisa con `[SIN DETALLE]`. El enlace de la home con la venta
+  abierta aún no se ha visto: su lectura (`JS_EVENTOS_HOME`) sale del código de la página.
+- **Excepción pedida por Aldemar para esa venta**: `"reintentar_siempre": True` intenta añadir
+  en **cada ronda** mientras haya un bloque habilitado que case. Tras un éxito sigue el freno de
+  10 min (`_ULTIMA_RESERVA`), salvo con `"completar": True`; los Telegram de fallo salen como
+  mucho cada 10 min. Además, las demás URLs quedaron comentadas con `#TEMP `. Ambas cosas
+  **suben la huella de peticiones** a Eleventickets y deben revertirse al acabar la venta.
+- **`"completar": True`** (misma venta, "4 sí o sí"): sin freno tras un éxito ni
+  `PAUSA_TRAS_DISPONIBILIDAD`; cada intento pregunta al servidor cuánto hay en el carrito
+  (`en_carrito()`) y sigue por los demás bloques hasta llegar a `maximo`, aunque queden en
+  sectores distintos. La cuenta en memoria (`_ENTRADAS_CONSEGUIDAS`) lo detiene al llegar y no
+  baja si una reserva vence: una entrada pagada sale del carrito y, mirando solo el carrito,
+  compraría otras 4. Reiniciar el monitor la pone a cero. Un segundo "Añadir" en la misma
+  cuenta aún no se ha visto en vivo.
+- **El tope de 4 cuenta lo pagado** (30-oct-2026): con 4 CAT2 pagadas en la cuenta, el carrito
+  da 0 y cada asiento responde "Se ha excedido el número límite de entradas por persona (4)".
+  `RE_LIMITE_CUENTA` detiene el intento (`completo`). Occidental son asientos numerados (`m=1`,
+  sectores 313-315) y Oriental, productos con cantidad; los bloques cambian entre ventas.
+- **Varios bloques numerados en una página** (30-oct-2026): al acercarse a uno, el mapa quita a
+  los vecinos de las capas visibles y carga sus asientos, así que buscar el bloque con
+  `eachLayer` daba "no se abrio" en 0,0 s (el 315 y el 314 no se revisaban). `JS_PULSAR_BLOQUE`
+  mira también `g_mapa_groupBlocos`, con los 90, y usa `setView` sin animación en vez de
+  `fitBounds`. Verificado en vivo: 313, 315 y 314 abren seguidos. Estados de asiento: `L` libre,
+  `R` reservado, `O` ocupado, `B` bloqueado; no traen hora de vencimiento. Un asiento recién
+  liberado se va en segundos: G-015 ya contestó "Assento reservado" (ngDialog) al pulsarlo.
 - **Sin verificar**: un "Añadir" que funcione (los dos intentos del 28-oct-2026 no dejaron
   nada en el carrito y no se vio por qué) y el flujo de asientos numerados.
 - Comet se actualizó a 155: hizo falta bajar chromedriver 155 con Selenium Manager

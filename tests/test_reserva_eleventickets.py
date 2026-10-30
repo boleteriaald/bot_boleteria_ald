@@ -148,6 +148,60 @@ class TestCantidad(unittest.TestCase):
         self.assertEqual(r.sector, ORIENTAL_ALTA_1)
 
 
+class TestCompletar(unittest.TestCase):
+    """Venta del 30-oct-2026: 4 entradas si o si, aunque sean de sectores distintos."""
+
+    def _pagina(self, **kw):
+        return PaginaFalsa([bloque(ORIENTAL_MEDIA_3), bloque(ORIENTAL_ALTA_1), bloque(OCCIDENTAL)],
+                           productos={ORIENTAL_MEDIA_3: GENERAL, ORIENTAL_ALTA_1: GENERAL, OCCIDENTAL: GENERAL},
+                           **kw)
+
+    def test_completa_con_el_siguiente_bloque(self):
+        p = self._pagina()
+        cupos = iter([1, 3])
+
+        def anadir(original=p.anadir):
+            return original()
+        p.fijar_cantidad = lambda i, n: setattr(p, "cantidad", min(n, next(cupos))) or p.cantidad
+        p.anadir = anadir
+        r = re11.reservar(p, ["CAT2 - Oriental"], maximo=4, tope=4)
+        self.assertTrue(r.ok)
+        self.assertEqual(r.cantidad, 4)
+        self.assertEqual(p.anadidos, [(ORIENTAL_MEDIA_3, 1), (ORIENTAL_ALTA_1, 3)])
+        self.assertIn(" + ", r.sector)
+
+    def test_descuenta_lo_que_ya_hay_en_el_carrito(self):
+        p = self._pagina()
+        p.en_carrito = lambda: 3
+        r = re11.reservar(p, ["CAT2 - Oriental"], maximo=4, tope=4)
+        self.assertEqual(r.cantidad, 1)
+
+    def test_carrito_lleno_no_pulsa_nada(self):
+        p = self._pagina()
+        p.en_carrito = lambda: 4
+        r = re11.reservar(p, ["CAT2 - Oriental"], maximo=4, tope=4)
+        self.assertFalse(r.ok)
+        self.assertTrue(r.completo)
+        self.assertEqual(p.abiertos, [])
+
+    def test_limite_de_la_cuenta_para_sin_probar_mas_bloques(self):
+        # 30-oct-2026: 4 entradas ya pagadas, carrito en 0 y rechazo al pedir un solo asiento.
+        asientos = {ORIENTAL_MEDIA_3: [{"id": "a", "fila": "A", "lugar": "7"}]}
+        p = PaginaFalsa([bloque(ORIENTAL_MEDIA_3, numerado=True), bloque(ORIENTAL_ALTA_1)],
+                        productos={ORIENTAL_ALTA_1: GENERAL}, asientos=asientos, asientos_fallan={"a"})
+        p.reservar_asiento = lambda i: (False, "Atención Se ha excedido el número límite de entradas por persona (4) OK")
+        r = re11.reservar(p, ["CAT2 - Oriental"], maximo=4, tope=4)
+        self.assertFalse(r.ok)
+        self.assertTrue(r.completo)
+        self.assertEqual(p.abiertos, [ORIENTAL_MEDIA_3])
+
+    def test_si_no_se_completa_devuelve_las_que_hay(self):
+        p = self._pagina(tope=2)
+        r = re11.reservar(p, ["CAT1 - Occidental"], maximo=4, tope=4)
+        self.assertTrue(r.ok)
+        self.assertEqual((r.cantidad, r.pedidas), (2, 4))
+
+
 class TestSinReserva(unittest.TestCase):
     def test_venta_cerrada_no_pulsa_nada(self):
         pagina = PaginaFalsa([bloque(ORIENTAL_MEDIA_3, libre=False), bloque(ORIENTAL_ALTA_1, libre=False)])
@@ -176,9 +230,13 @@ class TestNumerados(unittest.TestCase):
         self.assertEqual(pagina.asientos_pulsados, ["b7", "b8", "b9", "b10"])
         self.assertEqual(r.asientos, ["Fila B 7", "Fila B 8", "Fila B 9", "Fila B 10"])
 
-    def test_sin_cuatro_juntos_toma_la_tanda_mas_larga(self):
-        asientos = [{"id": n, "fila": "A", "lugar": n} for n in ("1", "2", "5", "9")]
-        self.assertEqual([a["id"] for a in re11.elegir_juntos(asientos, 4)], ["1", "2"])
+    def test_sin_cuatro_juntos_toma_la_tanda_mas_larga_y_completa_con_sueltos(self):
+        asientos = [{"id": n, "fila": "A", "lugar": n} for n in ("1", "2", "5", "9", "12")]
+        self.assertEqual([a["id"] for a in re11.elegir_juntos(asientos, 4)], ["1", "2", "5", "9"])
+
+    def test_asientos_libres_de_a_uno_en_filas_distintas(self):
+        asientos = [{"id": f, "fila": f, "lugar": "7"} for f in "ABCDE"]
+        self.assertEqual(len(re11.elegir_juntos(asientos, 4)), 4)
 
     def test_un_asiento_perdido_no_tumba_los_demas(self):
         asientos = [{"id": f"c{n}", "fila": "C", "lugar": str(n)} for n in range(1, 5)]

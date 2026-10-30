@@ -75,28 +75,31 @@ def preparar_consola():
             pass
 
 
+# #TEMP = fuera solo por la venta de la Conmebol (30-oct-2026). Para volver: quitar '#TEMP '.
 URLS_A_MONITOREAR = [
 
+    "https://gencolvschl.checkout.tuboleta.com/selection/event/seat?perfId=10230606881035&productId=10230606880885&ot=0&table=1",
+
     # ALCOLIRYCOZ
-    "https://tbpgpal.checkout.tuboleta.com/selection/event/date?productId=10230595471270",
+    #TEMP "https://tbpgpal.checkout.tuboleta.com/selection/event/date?productId=10230595471270",
 
     # ALCOLIRYCOZ PASALA
-    "https://pasala.checkout.tuboleta.com/selection/resale/item?performanceId=10230595823557",
+    #TEMP "https://pasala.checkout.tuboleta.com/selection/resale/item?performanceId=10230595823557",
 
     # REYKON DEL 6
     # "https://tbpgpal.checkout.tuboleta.com/selection/event/seat?perfId=10230535645360&productId=10230513253147&lang=es",
-    "https://tbpgpal.checkout.tuboleta.com/selection/event/seat?perfId=10230535645360&table=1&productId=10230513253147",
+    #TEMP "https://tbpgpal.checkout.tuboleta.com/selection/event/seat?perfId=10230535645360&table=1&productId=10230513253147",
     #
     # REYKON DEL 7
     # "https://tbpgpal.checkout.tuboleta.com/selection/event/seat?perfId=10230513254076&productId=10230513253147&lang=es",
-    "https://tbpgpal.checkout.tuboleta.com/selection/event/seat?perfId=10230513254076&table=1&productId=10230513253147",
+    #TEMP "https://tbpgpal.checkout.tuboleta.com/selection/event/seat?perfId=10230513254076&table=1&productId=10230513253147",
 
     # FUCK NEW MEDELLÍN
-    "https://appfreeticket.com/eventos/fucks-news-noticreo-medellin-medellin",
+    #TEMP "https://appfreeticket.com/eventos/fucks-news-noticreo-medellin-medellin",
 
     # SOLIS BUCARAMANGA
     # "https://tbpgpal.checkout.tuboleta.com/selection/event/date?productId=10230542860592",
-    "https://tbpgpal.checkout.tuboleta.com/selection/event/seat?perfId=10230544136188&table=1&productId=10230542860592",
+    #TEMP "https://tbpgpal.checkout.tuboleta.com/selection/event/seat?perfId=10230544136188&table=1&productId=10230542860592",
 
     # "https://www.ticketmaster.co/event/bunbury-nuevas-mutaciones-tour-2026-cali",
     #
@@ -106,15 +109,15 @@ URLS_A_MONITOREAR = [
     # "https://www.ticketmaster.co/event/carlos-vives-bucaramanga-venta-general",
 
     # FUCK NEWS
-    "https://tbpgpal.checkout.tuboleta.com/selection/event/date?productId=10230576245316",
+    #TEMP "https://tbpgpal.checkout.tuboleta.com/selection/event/date?productId=10230576245316",
     # "https://tbpgpal.checkout.tuboleta.com/selection/event/seat?perfId=10230576236233&table=1&productId=10230576245316",
 
     # LA OREJA DE VAN GOGH
-    "https://tbpgpal.checkout.tuboleta.com/selection/event/date?productId=10230529413044",
+    #TEMP "https://tbpgpal.checkout.tuboleta.com/selection/event/date?productId=10230529413044",
 
     # MARCO ANTONIO MEDELLIN
     # "https://tuboletapass.checkout.tuboleta.com/selection/event/date?productId=10230519581504",
-    "https://tuboletapass.checkout.tuboleta.com/selection/event/seat?perfId=10230519581622&productId=10230519581504",
+    #TEMP "https://tuboletapass.checkout.tuboleta.com/selection/event/seat?perfId=10230519581622&productId=10230519581504",
     # "https://tuboletapass.checkout.tuboleta.com/selection/event/seat?perfId=10230519581622&table=1&productId=10230519581504",
 
     # STREAM FIGHTERS
@@ -128,7 +131,7 @@ URLS_A_MONITOREAR = [
     # "https://www.ticketmaster.co/event/anuel-aa-venta-general",
 
     # CALVIN HARIS
-    "https://www.ticketmaster.co/event/calvin-harris-venta-general",
+    #TEMP "https://www.ticketmaster.co/event/calvin-harris-venta-general",
 
     # KAROL G DEL 4
     # "https://www.ticketmaster.co/event/karol-g-viajando-por-el-mundo-tropitour-venta-general",
@@ -141,14 +144,14 @@ URLS_A_MONITOREAR = [
     # "https://breakfast.checkout.tuboleta.com/selection/event/seat?perfId=10230441698792&table=1&productId=10230441698670",
 
     # LOS CALIGARIS
-    "https://tuboletapass4.checkout.tuboleta.com/selection/event/seat?perfId=10230442113890&table=1&productId=10230442107826",
+    #TEMP "https://tuboletapass4.checkout.tuboleta.com/selection/event/seat?perfId=10230442113890&table=1&productId=10230442107826",
 
     # OMAR COURTZ 12--NOV
     # "https://tbpgpal.checkout.tuboleta.com/selection/event/seat?perfId=10230527903278&productId=10230523214255",
-    "https://tbpgpal.checkout.tuboleta.com/selection/event/seat?perfId=10230527903278&table=1&productId=10230523214255",
+    #TEMP "https://tbpgpal.checkout.tuboleta.com/selection/event/seat?perfId=10230527903278&table=1&productId=10230523214255",
 
     # OMAR COURTZ 13--NOV
-    "https://tbpgpal.checkout.tuboleta.com/selection/event/seat?perfId=10230524219204&productId=10230523214255",
+    #TEMP "https://tbpgpal.checkout.tuboleta.com/selection/event/seat?perfId=10230524219204&productId=10230523214255",
 
     # OMAR COURTZ 12--NOV
     # "https://pasala.checkout.tuboleta.com/selection/resale/item?performanceId=10230527903278&productId=10230523214255&lang=es",
@@ -160,11 +163,11 @@ URLS_A_MONITOREAR = [
     # "https://tbpgpal.checkout.tuboleta.com/selection/event/seat?perfId=10230398494504&table=1&productId=10230387611599",
 
     # DEFF LEPARD
-    "https://tbpgpal.checkout.tuboleta.com/selection/event/seat?perfId=10230485786391&table=1&productId=10230485782854",
+    #TEMP "https://tbpgpal.checkout.tuboleta.com/selection/event/seat?perfId=10230485786391&table=1&productId=10230485782854",
 
     # GORILLAZ
-    "https://www.taquillalive.com/performance-details/?artist=gorillaz&event=TCL.EVN1152.PRF1",
-    "https://www.taquillalive.com/book-performance/?artist=gorillaz&event=TCL.EVN1152.PRF1",
+    #TEMP "https://www.taquillalive.com/performance-details/?artist=gorillaz&event=TCL.EVN1152.PRF1",
+    #TEMP "https://www.taquillalive.com/book-performance/?artist=gorillaz&event=TCL.EVN1152.PRF1",
 
     # RYAN BOGOTÁ
     # "https://breakfast.checkout.tuboleta.com/selection/event/date?productId=10230451310131&_gl=1*4qwrrk*_gcl_au*MTI4ODU1NzA0Ni4xNzc2NjIyOTk5Ljc2MjAzMjQ3NC4xNzgzNTcwNzY2LjE3ODM1NzA3NjY.*_ga*MTk0NDE0NzkuMTc3NjYyMjk5OQ..*_ga_0TVTJ30NVQ*czE3ODM1NjQ3MDEkbzMkZzEkdDE3ODM1NzE2MjYkajUxJGwwJGgxMTI3OTc4Mzc3",
@@ -184,6 +187,9 @@ URLS_A_MONITOREAR = [
 # Si está en el diccionario, solo se notificará si coincide con una de las localidades
 
 FILTROS_LOCALIDADES = {
+
+    "https://gencolvschl.checkout.tuboleta.com/selection/event/seat?perfId=10230606881035&productId=10230606880885&ot=0&table=1":
+        ["NORTE", "SUR"],
 
     # ALCOLIRYCOZ
     "https://tbpgpal.checkout.tuboleta.com/selection/event/date?productId=10230595471270":
@@ -972,7 +978,59 @@ def verificar_disponibilidad_ticketmaster(driver, url):
 ESPERA_MAPA_ELEVENTICKETS = 12  # Segundos maximos hasta que el mapa pinte sus bloques
 
 
-def verificar_disponibilidad_eleventickets(driver, url):
+# La pagina del evento puede estar cerrada entre ventas (30-oct-2026: el enlace de la venta anterior
+# decia "Presentación bloqueada", sin mapa, y la home "VENTA DE ENTRADAS EN BREVE").
+JS_PRESENTACION_BLOQUEADA = "return /Presentaci.n bloqueada/i.test(document.body ? document.body.innerText : '');"
+
+# Enlaces a eventos en la home: en sus enlaces, en los destacados o porque redirige al unico que hay.
+JS_EVENTOS_HOME = r"""
+var ids = [], poner = function (i) { if (i && ids.indexOf(String(i)) < 0) { ids.push(String(i)); } };
+var m = /apresentacao\/([0-9a-f]+)/.exec(location.hash); if (m) { poner(m[1]); }
+document.querySelectorAll('a[href*="apresentacao/"]').forEach(function (a) {
+    var x = /apresentacao\/([0-9a-f]+)/.exec(a.href); if (x) { poner(x[1]); }
+});
+document.querySelectorAll('[ng-repeat*="destaques"]').forEach(function (e) {
+    var s = angular.element(e).scope(); if (s && s.slideItem) { poner(s.slideItem.idapresentacao); }
+});
+return {ids: ids, en_breve: /VENTA DE ENTRADAS EN BREVE/i.test(document.body ? document.body.innerText : '')};
+"""
+
+
+def _presentacion_bloqueada(driver):
+    return driver.execute_script(JS_PRESENTACION_BLOQUEADA) is True
+
+
+def _buscar_evento_en_home(driver, url):
+    """
+    Con el evento bloqueado, mira la home (una carga, solo mientras dure el bloqueo). Si publica
+    otro enlace, lee ese: la reserva lo atiende con la misma configuracion. Si dejo de decir "en
+    breve" sin enlace reconocible, avisa: una pagina que no se entiende no es un agotado.
+    """
+    base = url.split("#!")[0]
+    driver.get("about:blank")
+    navegar(driver, base + "#!/home")
+    time.sleep(3)
+    datos = {}
+    limite = time.time() + 5
+    while time.time() < limite:
+        datos = driver.execute_script(JS_EVENTOS_HOME) or {}
+        if datos.get("ids"):
+            break
+        time.sleep(0.5)
+    actual = url.rsplit("/", 1)[-1]
+    otros = [i for i in datos.get("ids", []) if i != actual]
+    if otros:
+        nueva = f"{base}#!/apresentacao/{otros[0]}"
+        print(f"   ENLACE NUEVO en la home: {nueva}")
+        log.warning(f"Eleventickets: enlace nuevo en la home {nueva} | {url}")
+        return verificar_disponibilidad_eleventickets(driver, nueva, buscar_en_home=False)
+    if datos and not datos.get("en_breve"):
+        print("   La home ya no dice 'en breve' - posible venta abierta")
+        return [f"Final Sudamericana - la home cambio, posible venta abierta {MARCADOR_SIN_DETALLE}"], [], url
+    return [], ["Presentacion bloqueada, venta en breve"], url
+
+
+def verificar_disponibilidad_eleventickets(driver, url, buscar_en_home=True):
     """
     Bloques del mapa de Eleventickets habilitados (disponibles) y deshabilitados (agotadas).
 
@@ -987,9 +1045,9 @@ def verificar_disponibilidad_eleventickets(driver, url):
     """
     try:
         print(f"\n-> Navegando a Eleventickets: {url}")
-        # La URL lleva "#!": si la pestana ya esta en ella, get() solo cambia el ancla y no
-        # recarga. about:blank no hace ninguna peticion.
-        if (driver.current_url or "") == url:
+        # La URL lleva "#!": dentro del mismo sitio get() solo cambia el ancla y no recarga.
+        # about:blank no hace ninguna peticion.
+        if "eleventickets.com" in (driver.current_url or ""):
             driver.get("about:blank")
         navegar(driver, url)
         time.sleep(3)
@@ -997,6 +1055,12 @@ def verificar_disponibilidad_eleventickets(driver, url):
         limite = time.time() + ESPERA_MAPA_ELEVENTICKETS
         bloques = driver.execute_script(reserva_eleventickets.JS_BLOQUES)
         while not bloques and time.time() < limite:
+            if _presentacion_bloqueada(driver):
+                print("   Presentacion bloqueada: se mira la home por si hay otro enlace")
+                log.info(f"Eleventickets: presentacion bloqueada | {url}")
+                if buscar_en_home:
+                    return _buscar_evento_en_home(driver, url)
+                return [], [], url
             time.sleep(0.5)
             bloques = driver.execute_script(reserva_eleventickets.JS_BLOQUES)
 
@@ -1807,12 +1871,16 @@ RESERVAR_TICKETMASTER = {
 # "sectores" son palabras; su ORDEN es la prioridad. Independiente de FILTROS_LOCALIDADES.
 RESERVAR_ELEVENTICKETS = {
     "https://sudamericana.eleventickets.com/#!/apresentacao/4bb1cb440b627393353ec181eb59a53056c9786c":
-    # Todo el estadio. El ORDEN es la prioridad: primero CAT2 Oriental (lo pedido al
-    # principio), luego CAT1 Occidental y al final CAT3. Ojo: segun las preguntas
+    # Todo el estadio. El ORDEN es la prioridad: primero CAT1 Occidental (pedido el 30-oct,
+    # Oriental salia agotado), luego CAT2 Oriental y al final CAT3. Ojo: segun las preguntas
     # frecuentes del evento, el sector Sur es solo para hinchas de Atletico Mineiro.
-        {"maximo": 4, "sectores": [
-            "CAT2 - Oriental Tribuna Alta", "CAT2 - Oriental Tribuna Media", "CAT2 - Oriental Tribuna Baja",
+        # reintentar_siempre: prueba en CADA ronda mientras haya un bloque habilitado que case, no
+        # solo cuando aparece nuevo (pedido para la venta del 30-oct-2026). Sube las peticiones.
+        # completar: no para hasta tener "maximo" entradas en total, aunque queden en sectores
+        # distintos, y sin el freno de 10 min tras un exito. Al llegar deja de intentar.
+        {"maximo": 4, "reintentar_siempre": True, "completar": True, "sectores": [
             "CAT1 - Occidental Tribuna Alta", "CAT1 - Occidental Tribuna Media", "CAT1 - Occidental Tribuna Baja",
+            "CAT2 - Oriental Tribuna Alta", "CAT2 - Oriental Tribuna Media", "CAT2 - Oriental Tribuna Baja",
             "CAT3 - Norte", "CAT3 - Sur"]}
 }
 
@@ -2211,6 +2279,15 @@ def intentar_reserva(driver, url, sectores, nombre_evento):
     return [reserva]
 
 
+def _config_eleventickets(url):
+    """Configuracion de la URL; un enlace nuevo del mismo sitio (hallado en la home) usa la primera."""
+    if url in RESERVAR_ELEVENTICKETS:
+        return RESERVAR_ELEVENTICKETS[url]
+    if es_url_eleventickets(url) and RESERVAR_ELEVENTICKETS:
+        return next(iter(RESERVAR_ELEVENTICKETS.values()))
+    return {}
+
+
 def intentar_reserva_eleventickets(driver, url, bloques_nuevos, nombre_evento):
     """
     Anade al carrito en Eleventickets y avisa por Telegram. Nunca lanza.
@@ -2220,7 +2297,7 @@ def intentar_reserva_eleventickets(driver, url, bloques_nuevos, nombre_evento):
     (uno viejo tambien puede tener cupo). Una pestana nueva en el navegador de reserva: si
     algo entro al carrito se deja abierta; si no, se cierra. Devuelve la Reserva o None.
     """
-    config = RESERVAR_ELEVENTICKETS.get(url) or {}
+    config = _config_eleventickets(url)
     maximo = config.get("maximo", reserva_eleventickets.MAXIMO_POR_COMPRADOR)
     palabras = config.get("sectores") or []
     claves = [normalizar_nombre(p) for p in palabras if normalizar_nombre(p)]
@@ -2229,8 +2306,12 @@ def intentar_reserva_eleventickets(driver, url, bloques_nuevos, nombre_evento):
         if bloques_nuevos:
             log.info(f"RESERVA: ningun bloque nuevo coincide con {palabras}: {bloques_nuevos[:10]} | {url}")
         return None
+    if config.get("completar"):
+        if _ENTRADAS_CONSEGUIDAS.get(url, 0) >= maximo:
+            print(f"   🎟️ Ya hay {maximo} entradas conseguidas; no se intenta más")
+            return None
     # Mismo freno que en Ticketmaster: si el aviso fallo, el bloque vuelve a ser "nuevo".
-    if time.time() - _ULTIMA_RESERVA.get(url, 0) < INTERVALO_RECORDATORIO:
+    elif time.time() - _ULTIMA_RESERVA.get(url, 0) < INTERVALO_RECORDATORIO:
         print("   🎟️ Ya se añadio al carrito hace poco en este evento; no se repite")
         return None
 
@@ -2252,6 +2333,11 @@ def intentar_reserva_eleventickets(driver, url, bloques_nuevos, nombre_evento):
 
 # url -> pestana del navegador de reserva que se quedo en la verificacion de Cloudflare
 _PESTANA_VERIFICACION = {}
+_ULTIMO_FALLO_AVISADO = {}  # url -> hora del ultimo Telegram de fallo (modo reintentar_siempre)
+# url -> entradas conseguidas en esta ejecucion (modo completar). Va en memoria y no se descuenta
+# si una reserva vence: una entrada ya pagada no sale del carrito como reservada y, contando solo
+# con el carrito, el bot compraria otras 4.
+_ENTRADAS_CONSEGUIDAS = {}
 
 
 def _carrito_en_pestana(navegador, url, palabras, maximo, pestana=None):
@@ -2268,7 +2354,11 @@ def _carrito_en_pestana(navegador, url, palabras, maximo, pestana=None):
         else:
             navegador.switch_to.new_window("tab")
         pagina = reserva_eleventickets.PaginaSelenium(navegador, url, navegar, ya_cargada=bool(pestana))
-        reserva = reserva_eleventickets.reservar(pagina, palabras, maximo=maximo)
+        if _config_eleventickets(url).get("completar"):
+            reserva = reserva_eleventickets.reservar(pagina, palabras, tope=maximo,
+                                                     maximo=maximo - _ENTRADAS_CONSEGUIDAS.get(url, 0))
+        else:
+            reserva = reserva_eleventickets.reservar(pagina, palabras, maximo=maximo)
         if reserva.conservar_pestana:
             _PESTANA_VERIFICACION[url] = navegador.current_window_handle
         cerrar = not reserva.ok and not reserva.conservar_pestana
@@ -2288,10 +2378,29 @@ def _carrito_en_pestana(navegador, url, palabras, maximo, pestana=None):
 def _avisar_carrito(reserva, nombre_evento, url):
     if reserva.ok:
         _ULTIMA_RESERVA[url] = time.time()
+    config = _config_eleventickets(url)
+    if config.get("completar"):
+        tope = config.get("maximo", reserva_eleventickets.MAXIMO_POR_COMPRADOR)
+        if reserva.completo:
+            _ENTRADAS_CONSEGUIDAS[url] = tope
+        elif reserva.ok:
+            _ENTRADAS_CONSEGUIDAS[url] = _ENTRADAS_CONSEGUIDAS.get(url, 0) + reserva.cantidad
     resultado = "OK" if reserva.ok else "FALLO"
     log.warning(f"RESERVA Eleventickets {resultado}: {reserva} | {url}")
     print(f"   🎟️ Carrito {resultado}: {reserva.detalle or str(reserva.cantidad) + ' entrada(s)'}")
-    enviar_notificacion(reserva_eleventickets.mensaje(reserva, nombre_evento, url, time.strftime('%H:%M:%S')))
+    # Reintentando en cada ronda, un Telegram por fallo seria uno cada pocos segundos. El exito y la
+    # verificacion de Cloudflare (hay que actuar) salen siempre; los fallos, como mucho cada 10 min.
+    reintenta = _config_eleventickets(url).get("reintentar_siempre")
+    if (reserva.ok or reserva.conservar_pestana or reserva.completo or not reintenta
+            or time.time() - _ULTIMO_FALLO_AVISADO.get(url, 0) >= INTERVALO_RECORDATORIO):
+        if not reserva.ok:
+            _ULTIMO_FALLO_AVISADO[url] = time.time()
+        texto = reserva_eleventickets.mensaje(reserva, nombre_evento, url, time.strftime('%H:%M:%S'))
+        if config.get("completar") and reserva.ok:
+            llevas = _ENTRADAS_CONSEGUIDAS.get(url, 0)
+            texto += (f"\n\n✅ Llevas {llevas} de {tope}: ya no se intenta más." if llevas >= tope
+                      else f"\n\n⏳ Llevas {llevas} de {tope}: sigo intentando las que faltan.")
+        enviar_notificacion(texto)
     return reserva
 
 
@@ -2329,7 +2438,7 @@ def reintentar_tras_verificacion(driver, url, nombre_evento):
         return None
 
     _PESTANA_VERIFICACION.pop(url, None)
-    config = RESERVAR_ELEVENTICKETS.get(url) or {}
+    config = _config_eleventickets(url)
     maximo = config.get("maximo", reserva_eleventickets.MAXIMO_POR_COMPRADOR)
     palabras = config.get("sectores") or []
     log.warning(f"RESERVA Eleventickets: verificacion pasada, reintentando {palabras} (max {maximo}) | {url}")
@@ -2541,10 +2650,13 @@ def monitorear_urls(driver):
                     # Lo mismo para Eleventickets: solo ante bloques recien habilitados. Un bloque
                     # que sigue habilitado no se reintenta en cada ronda (seria una peticion de
                     # reserva por ronda); vuelve a contar si se deshabilita y se rehabilita.
-                    if url_final in RESERVAR_ELEVENTICKETS and es_url_eleventickets(url_final):
+                    if es_url_eleventickets(url_final) and _config_eleventickets(url_final):
                         reintentar_tras_verificacion(driver, url_final, obtener_nombre_evento(driver))
+                        candidatos = [d for d in disponibles if MARCADOR_SIN_DETALLE not in d]
                         nuevas_reserva, _, _ = localidades_a_notificar(
-                            estado, url_final + CLAVE_RESERVA, disponibles)
+                            estado, url_final + CLAVE_RESERVA, candidatos)
+                        if _config_eleventickets(url_final).get("reintentar_siempre"):
+                            nuevas_reserva = candidatos
                         if nuevas_reserva:
                             intentar_reserva_eleventickets(driver, url_final, nuevas_reserva,
                                                            obtener_nombre_evento(driver))
@@ -2553,7 +2665,9 @@ def monitorear_urls(driver):
                     # deduplicacion se avisa mucho menos, asi que se ata a la
                     # disponibilidad y no al aviso: el bucle mantiene exactamente
                     # el mismo ritmo de consultas que antes.
-                    if disponibles_filtrados:
+                    if disponibles_filtrados and not (
+                            es_url_eleventickets(url_final)
+                            and _config_eleventickets(url_final).get("reintentar_siempre")):
                         time.sleep(PAUSA_TRAS_DISPONIBILIDAD)
                 except Exception as e:
                     print(f"✗ Error procesando {url}: {e}")
