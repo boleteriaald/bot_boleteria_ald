@@ -1,0 +1,2925 @@
+import asyncio
+import glob
+import json
+import logging
+import os
+import subprocess
+import sys
+import time
+import urllib.request
+from logging.handlers import RotatingFileHandler
+
+import unicodedata
+from selenium import webdriver
+from selenium.common.exceptions import NoSuchElementException, TimeoutException, WebDriverException
+from selenium.webdriver.chrome.options import Options
+from selenium.webdriver.chrome.service import Service
+from selenium.webdriver.common.by import By
+from selenium.webdriver.common.selenium_manager import SeleniumManager
+from selenium.webdriver.support import expected_conditions as EC
+from selenium.webdriver.support.ui import WebDriverWait
+from telegram import Bot
+from telegram.error import TelegramError
+
+import reserva_eleventickets
+import reserva_ticketmaster
+from config import TELEGRAM_BOT_TOKEN, TELEGRAM_CHAT_ID
+
+# ============================================================
+# REGISTRO EN ARCHIVO
+# ============================================================
+# La consola muestra lo mismo de siempre. El archivo guarda un resumen
+# compacto (una linea por URL y ronda) mas los avisos, bloqueos y errores
+# con su traza completa. Sin el, tras una noche corriendo no quedaba rastro:
+# el cuelgue de BTS y el falso negativo de Anuel solo se vieron porque el
+# usuario estaba mirando la consola en ese momento.
+#
+# Al importar el modulo (p. ej. desde probar_ticketmaster.py) no se escribe
+# nada: el archivo solo se activa al lanzar el monitor.
+log = logging.getLogger("monitor")
+log.addHandler(logging.NullHandler())
+
+CARPETA_LOGS = os.path.join(os.path.dirname(os.path.abspath(__file__)), "logs")
+ARCHIVO_LOG = os.path.join(CARPETA_LOGS, "monitor.log")
+# Rota al llegar a 5 MB y conserva los 5 anteriores: unos 25 MB como maximo.
+# Con una linea por URL y ronda eso cubre alrededor de una semana 24/7.
+TAMANO_MAXIMO_LOG = 5 * 1024 * 1024
+LOGS_CONSERVADOS = 5
+
+
+def configurar_registro():
+    """Activa la escritura del registro en logs/monitor.log, con rotacion."""
+    os.makedirs(CARPETA_LOGS, exist_ok=True)
+    manejador = RotatingFileHandler(
+        ARCHIVO_LOG, maxBytes=TAMANO_MAXIMO_LOG, backupCount=LOGS_CONSERVADOS, encoding="utf-8"
+    )
+    manejador.setFormatter(
+        logging.Formatter("%(asctime)s %(levelname)-7s %(message)s", "%Y-%m-%d %H:%M:%S")
+    )
+    log.addHandler(manejador)
+    log.setLevel(logging.INFO)
+
+
+def preparar_consola():
+    """
+    Evita que un emoji tumbe el monitor en consolas que no los soportan.
+
+    En cmd.exe la codificacion es cp1252 y el primer print con un emoji
+    lanzaba UnicodeEncodeError. Con errors='replace' el caracter que no se
+    puede mostrar sale como '?' y el programa sigue. En consolas UTF-8, como
+    la de PyCharm, no cambia nada.
+    """
+    for flujo in (sys.stdout, sys.stderr):
+        try:
+            flujo.reconfigure(errors="replace")
+        except (AttributeError, ValueError):
+            pass
+
+
+URLS_A_MONITOREAR = [
+
+    "https://gencolvschl.checkout.tuboleta.com/selection/event/seat?perfId=10230606881035&productId=10230606880885&ot=0&table=1",
+
+    # ALCOLIRYCOZ
+    "https://tbpgpal.checkout.tuboleta.com/selection/event/date?productId=10230595471270",
+
+    # ALCOLIRYCOZ PASALA
+    "https://pasala.checkout.tuboleta.com/selection/resale/item?performanceId=10230595823557",
+
+    # REYKON DEL 6
+    # "https://tbpgpal.checkout.tuboleta.com/selection/event/seat?perfId=10230535645360&productId=10230513253147&lang=es",
+    "https://tbpgpal.checkout.tuboleta.com/selection/event/seat?perfId=10230535645360&table=1&productId=10230513253147",
+    #
+    # REYKON DEL 7
+    # "https://tbpgpal.checkout.tuboleta.com/selection/event/seat?perfId=10230513254076&productId=10230513253147&lang=es",
+    "https://tbpgpal.checkout.tuboleta.com/selection/event/seat?perfId=10230513254076&table=1&productId=10230513253147",
+
+    # FUCK NEW MEDELLÍN
+    "https://appfreeticket.com/eventos/fucks-news-noticreo-medellin-medellin",
+
+    # SOLIS BUCARAMANGA
+    # "https://tbpgpal.checkout.tuboleta.com/selection/event/date?productId=10230542860592",
+    "https://tbpgpal.checkout.tuboleta.com/selection/event/seat?perfId=10230544136188&table=1&productId=10230542860592",
+
+    # "https://www.ticketmaster.co/event/bunbury-nuevas-mutaciones-tour-2026-cali",
+    #
+    # "https://www.ticketmaster.co/event/iron-maiden-venta-general",
+    #
+    # # VIVES PRUEBA
+    # "https://www.ticketmaster.co/event/carlos-vives-bucaramanga-venta-general",
+
+    # FUCK NEWS
+    "https://tbpgpal.checkout.tuboleta.com/selection/event/date?productId=10230576245316",
+    # "https://tbpgpal.checkout.tuboleta.com/selection/event/seat?perfId=10230576236233&table=1&productId=10230576245316",
+
+    # LA OREJA DE VAN GOGH
+    "https://tbpgpal.checkout.tuboleta.com/selection/event/date?productId=10230529413044",
+
+    # MARCO ANTONIO MEDELLIN
+    # "https://tuboletapass.checkout.tuboleta.com/selection/event/date?productId=10230519581504",
+    "https://tuboletapass.checkout.tuboleta.com/selection/event/seat?perfId=10230519581622&productId=10230519581504",
+    # "https://tuboletapass.checkout.tuboleta.com/selection/event/seat?perfId=10230519581622&table=1&productId=10230519581504",
+
+    # STREAM FIGHTERS
+    # "https://www.taquillalive.com/performance-details/?artist=westcol&event=TCL.EVN1440.PRF1",
+    # "https://www.taquillalive.com/book-performance/?artist=westcol&event=TCL.EVN1440.PRF1",
+
+    # # MANÁ
+    # "https://www.ticketmaster.co/event/mana-2026-venta-general",
+
+    # ANUEL AA
+    # "https://www.ticketmaster.co/event/anuel-aa-venta-general",
+
+    # CALVIN HARIS
+    "https://www.ticketmaster.co/event/calvin-harris-venta-general",
+
+    # KAROL G DEL 4
+    # "https://www.ticketmaster.co/event/karol-g-viajando-por-el-mundo-tropitour-venta-general",
+    # # KAROL G DEL 5
+    # "https://www.ticketmaster.co/event/karol-g-viajando-por-el-mundo-tropitour-venta-general-segunda-fecha#",
+    # # KAROL G DEL 6
+    # "https://www.ticketmaster.co/event/karol-g-viajando-por-el-mundo-tropitour-venta-general-tercera-fech#",
+
+    # CAMILO
+    # "https://breakfast.checkout.tuboleta.com/selection/event/seat?perfId=10230441698792&table=1&productId=10230441698670",
+
+    # LOS CALIGARIS
+    "https://tuboletapass4.checkout.tuboleta.com/selection/event/seat?perfId=10230442113890&table=1&productId=10230442107826",
+
+    # OMAR COURTZ 12--NOV
+    # "https://tbpgpal.checkout.tuboleta.com/selection/event/seat?perfId=10230527903278&productId=10230523214255",
+    "https://tbpgpal.checkout.tuboleta.com/selection/event/seat?perfId=10230527903278&table=1&productId=10230523214255",
+
+    # OMAR COURTZ 13--NOV
+    "https://tbpgpal.checkout.tuboleta.com/selection/event/seat?perfId=10230524219204&productId=10230523214255",
+
+    # OMAR COURTZ 12--NOV
+    # "https://pasala.checkout.tuboleta.com/selection/resale/item?performanceId=10230527903278&productId=10230523214255&lang=es",
+
+    # OMAR COURTZ 13--NOV
+    # "https://pasala.checkout.tuboleta.com/selection/resale/item?performanceId=10230524219204&productId=10230523214255&lang=es",
+
+    # "https://tbpgpal.checkout.tuboleta.com/selection/event/date?productId=10230387611599", #KRIS R LOCALIDAD FALLA
+    # "https://tbpgpal.checkout.tuboleta.com/selection/event/seat?perfId=10230398494504&table=1&productId=10230387611599",
+
+    # DEFF LEPARD
+    "https://tbpgpal.checkout.tuboleta.com/selection/event/seat?perfId=10230485786391&table=1&productId=10230485782854",
+
+    # GORILLAZ
+    "https://www.taquillalive.com/performance-details/?artist=gorillaz&event=TCL.EVN1152.PRF1",
+    "https://www.taquillalive.com/book-performance/?artist=gorillaz&event=TCL.EVN1152.PRF1",
+
+    # RYAN BOGOTÁ
+    # "https://breakfast.checkout.tuboleta.com/selection/event/date?productId=10230451310131&_gl=1*4qwrrk*_gcl_au*MTI4ODU1NzA0Ni4xNzc2NjIyOTk5Ljc2MjAzMjQ3NC4xNzgzNTcwNzY2LjE3ODM1NzA3NjY.*_ga*MTk0NDE0NzkuMTc3NjYyMjk5OQ..*_ga_0TVTJ30NVQ*czE3ODM1NjQ3MDEkbzMkZzEkdDE3ODM1NzE2MjYkajUxJGwwJGgxMTI3OTc4Mzc3",
+    # "https://breakfast.checkout.tuboleta.com/selection/event/date?productId=10230451310131",
+    "https://breakfast.checkout.tuboleta.com/selection/event/seat?perfId=10230451311545&table=1&productId=10230451310131",
+
+    # FINAL SUDAMERICANA (Eleventickets)
+    "https://sudamericana.eleventickets.com/#!/apresentacao/4bb1cb440b627393353ec181eb59a53056c9786c"
+
+]
+
+# ============================================================
+# CONFIGURACIÓN DE FILTROS POR URL
+# ============================================================
+# Define qué localidades quieres monitorear para cada URL
+# Si la URL no está en el diccionario, se monitorean TODAS las localidades
+# Si está en el diccionario, solo se notificará si coincide con una de las localidades
+
+FILTROS_LOCALIDADES = {
+
+    "https://gencolvschl.checkout.tuboleta.com/selection/event/seat?perfId=10230606881035&productId=10230606880885&ot=0&table=1":
+        ["NORTE", "SUR"],
+
+    # ALCOLIRYCOZ
+    "https://tbpgpal.checkout.tuboleta.com/selection/event/date?productId=10230595471270":
+        ["202", "206", "208", "302", "304", "305", "307", "TRIBUNA"],
+
+    # ALCOLIRYCOZ PASALA
+    "https://pasala.checkout.tuboleta.com/selection/resale/item?performanceId=10230595823557":
+        ["202", "206", "208", "302", "304",
+         # "305",
+         "307", "TRIBUNA"],
+
+    # REYKON DEL 6
+    # "https://tbpgpal.checkout.tuboleta.com/selection/event/seat?perfId=10230535645360&productId=10230513253147&lang=es",
+    "https://tbpgpal.checkout.tuboleta.com/selection/event/seat?perfId=10230535645360&table=1&productId=10230513253147":
+        ["202", "206", "208", "302", "304", "305", "307", "TRIBUNA"],
+
+    # REYKON DEL 7
+    # "https://tbpgpal.checkout.tuboleta.com/selection/event/seat?perfId=10230513254076&productId=10230513253147&lang=es",
+    "https://tbpgpal.checkout.tuboleta.com/selection/event/seat?perfId=10230513254076&table=1&productId=10230513253147":
+        ["202", "206", "208", "302", "304", "305", "307", "TRIBUNA"],
+
+    # SOLIS BUCARAMANGA
+    # "https://tbpgpal.checkout.tuboleta.com/selection/event/date?productId=10230542860592":
+    #     ["SUR", "NORTE"],
+    "https://tbpgpal.checkout.tuboleta.com/selection/event/seat?perfId=10230544136188&table=1&productId=10230542860592":
+        ["SUR", "NORTE"],
+
+    # FUCK NEWS bogotá
+    "https://tbpgpal.checkout.tuboleta.com/selection/event/date?productId=10230576245316":
+        ["PLATEA", "218", "209", "301", "BOLETAS"],
+
+    # MARCO ANTONIO MEDELLIN
+    # "https://tuboletapass.checkout.tuboleta.com/selection/event/date?productId=10230519581504",
+    # "https://tuboletapass.checkout.tuboleta.com/selection/event/seat?perfId=10230519581622&table=1&productId=10230519581504":
+    "https://tuboletapass.checkout.tuboleta.com/selection/event/seat?perfId=10230519581622&productId=10230519581504":
+        ["GRADERIA"],
+
+    # MANÁ
+    "https://www.ticketmaster.co/event/mana-2026-venta-general":
+        ['PLATEA A'],
+
+    # OMAR COURTZ 12--NOV
+    # "https://tbpgpal.checkout.tuboleta.com/selection/event/seat?perfId=10230527903278&productId=10230523214255":
+    "https://tbpgpal.checkout.tuboleta.com/selection/event/seat?perfId=10230527903278&table=1&productId=10230523214255":
+        ["TRIBUNA",
+         "PLATEA",
+         "202", "206", "208", "302", "304", "305", "307"],
+
+    # OMAR COURTZ 12--NOV
+    "https://pasala.checkout.tuboleta.com/selection/resale/item?performanceId=10230527903278&productId=10230523214255&lang=es":
+        ["PLATEA"],
+
+    # OMAR COURTZ 13--NOV
+    "https://tbpgpal.checkout.tuboleta.com/selection/event/seat?perfId=10230524219204&productId=10230523214255":
+    # "https://tbpgpal.checkout.tuboleta.com/selection/event/seat?perfId=10230524219204&table=1&productId=10230523214255":
+        ["TRIBUNA",
+         "PLATEA",
+         "202", "206", "208", "302", "304", "305", "307"],
+
+    # OMAR COURTZ 13--NOV
+    "https://pasala.checkout.tuboleta.com/selection/resale/item?performanceId=10230524219204&productId=10230523214255&lang=es":
+        ["PLATEA"],
+
+    # RYAN BOGOTÁ
+    "https://breakfast.checkout.tuboleta.com/selection/event/seat?perfId=10230451311545&table=1&productId=10230451310131":
+        [
+            "VIP",
+            # "OCCIDENTAL ALTA",
+            # "OCCIDENTAL BAJA",
+            # "ORIENTAL BAJA",
+            "ORIENTAL ALTA",
+            "SUR ALTA", "NORTE ALTA"],
+
+    # CALVIN HARIS
+    "https://www.ticketmaster.co/event/calvin-harris-venta-general":
+        ["PLATEA 1", "PLATEA 2"],
+
+    # # GORILLAZ
+    # "https://www.taquillalive.com/performance-details/?artist=gorillaz&event=TCL.EVN1152.PRF1":
+    #     ["PLATEA 1", "PLATEA 2"],
+    #
+    # "https://www.taquillalive.com/book-performance/?artist=gorillaz&event=TCL.EVN1152.PRF1":
+    #     ["PLATEA 1", "PLATEA 2"],
+
+    # LOS CALIGARIS
+    "https://tuboletapass4.checkout.tuboleta.com/selection/event/seat?perfId=10230442113890&table=1&productId=10230442107826":
+        ["TRIBUNA", "PLATEA"],
+
+    # DEFF LEPARD
+    "https://tbpgpal.checkout.tuboleta.com/selection/event/seat?perfId=10230485786391&table=1&productId=10230485782854":
+        ["TRIBUNA",
+         "PLATEA",
+         "302", "306"],
+
+    # CAMILO
+    # "https://breakfast.checkout.tuboleta.com/selection/event/seat?perfId=10230441698792&table=1&productId=10230441698670":
+    # # ["TRIBUNA", "PRIMERAS"],
+    #     ["PRIMERAS"],
+
+    # FINAL SUDAMERICANA: sin filtro avisaria de los 90 bloques del estadio
+    "https://sudamericana.eleventickets.com/#!/apresentacao/4bb1cb440b627393353ec181eb59a53056c9786c":
+        ["CAT2 - Oriental Tribuna Alta", "CAT2 - Oriental Tribuna Media", "CAT2 - Oriental Tribuna Baja",
+         "CAT1 - Occidental Tribuna Alta", "CAT1 - Occidental Tribuna Media", "CAT1 - Occidental Tribuna Baja",
+         "CAT3 - Norte", "CAT3 - Sur"],
+
+}
+
+
+async def enviar_telegram(mensaje):
+    """Envía un mensaje por Telegram (SIN LÍMITES)"""
+    try:
+        bot = Bot(token=TELEGRAM_BOT_TOKEN)
+
+        print(f"   📤 Enviando a Telegram Chat ID: {TELEGRAM_CHAT_ID}")
+
+        # Limpieza básica del mensaje
+        mensaje_limpio = mensaje.replace('[', '(').replace(']', ')')
+
+        # Enviar mensaje
+        await bot.send_message(
+            chat_id=TELEGRAM_CHAT_ID,
+            text=mensaje_limpio,
+            parse_mode='HTML'  # Permite formato HTML
+        )
+
+        print(f"✓ Telegram enviado exitosamente")
+        return True
+
+    except TelegramError as e:
+        print(f"✗ Error de Telegram: {e}")
+        log.error(f"Error de Telegram: {e}")
+        return False
+    except Exception as e:
+        print(f"✗ Error al enviar Telegram: {e}")
+        log.exception("Error al enviar Telegram")
+        return False
+
+
+def enviar_notificacion(mensaje):
+    """
+    Envia una notificacion por el canal configurado (hoy, Telegram).
+
+    Envuelve la funcion async para poder llamarla desde el bucle sincrono.
+    """
+    try:
+        # Se devuelve el resultado real del envio. Antes se devolvia True aunque
+        # Telegram hubiera fallado, y el fallo quedaba invisible.
+        return asyncio.run(enviar_telegram(mensaje))
+    except Exception as e:
+        print(f"✗ Error: {e}")
+        log.exception("Error al enviar la notificacion")
+        return False
+
+
+def navegar(driver, url):
+    """
+    Carga una URL sin arriesgarse a esperar indefinidamente.
+
+    Si la pagina no termina de cargar en TIEMPO_MAXIMO_CARGA, se detiene la
+    carga y se sigue con lo que haya llegado, en vez de dar la lectura por
+    fallida. El evento de "carga completa" espera tambien a imagenes y
+    rastreadores, pero el contenido que lee el bot (el HTML y el catalogo de
+    sectores) llega mucho antes. Descartar la pagina convertiria una carga
+    lenta en un falso "no hay disponibilidad".
+
+    No reintenta: una sola visita por URL y ronda, como siempre.
+    """
+    try:
+        driver.get(url)
+    except TimeoutException:
+        print(f"   AVISO: la pagina tardo mas de {TIEMPO_MAXIMO_CARGA}s en cargar; se lee lo que haya llegado")
+        log.warning(f"Carga de pagina agotada ({TIEMPO_MAXIMO_CARGA}s), se lee lo que haya llegado | {url}")
+        try:
+            driver.execute_script("window.stop();")
+        except WebDriverException:
+            pass
+
+
+def puerto_depuracion_activo(puerto=None):
+    """Indica si un Comet responde en su puerto de depuracion. Consulta local, milisegundos."""
+    try:
+        with urllib.request.urlopen(f"http://127.0.0.1:{puerto or PUERTO_DEPURACION}/json/version", timeout=2):
+            return True
+    except Exception:
+        return False
+
+
+def conectar_chrome():
+    """
+    Conecta Selenium al Comet del monitor, o devuelve None si no es posible.
+
+    Antes de pedirle a chromedriver que se enganche se comprueba que el puerto
+    de depuracion responda. Es imprescindible: contra un Comet cerrado, cada
+    intento de chromedriver tarda 63 segundos en fallar (medido). Antes se
+    hacian 10 intentos seguidos, asi que el bot pasaba mas de 10 minutos ciego
+    antes de rendirse, tambien al arrancar con Comet cerrado.
+    """
+    limite = time.time() + ESPERA_ARRANQUE_CHROME
+    while not puerto_depuracion_activo():
+        if time.time() >= limite:
+            print("✗ Comet no responde en el puerto de depuración")
+            log.error("Comet no responde en el puerto de depuracion")
+            return None
+        print("⏳ Esperando a que Comet responda...")
+        time.sleep(2)
+
+    try:
+        driver, _ = _driver_en_puerto(PUERTO_DEPURACION)
+        print("✓ Conectado a Comet")
+        log.info("Conectado a Comet")
+        return driver
+    except Exception as e:
+        print(f"✗ Error al conectar a Comet: {e}")
+        log.error(f"No se pudo conectar a Comet: {e}")
+        return None
+
+
+def sesion_viva(driver):
+    """
+    Indica si la sesion con Comet sigue utilizable.
+
+    Hace falta preguntarlo activamente: los detectores capturan cualquier error
+    y devuelven listas vacias, asi que cuando Comet muere el bucle no ve ninguna
+    excepcion, solo URLs "sin nada" ronda tras ronda. Asi se acumularon 302
+    errores de "invalid session id" el 10/09 sin que el monitor se recuperara.
+
+    Es una consulta local a Comet, no una visita a ninguna pagina. Se captura
+    cualquier excepcion a proposito: si el que murio es chromedriver, el error
+    no es de Selenium sino de la conexion HTTP local.
+    """
+    # Si Comet no responde en su puerto, la sesion esta muerta: no se pregunta a
+    # chromedriver, que tardaria hasta un minuto en darse cuenta.
+    if not puerto_depuracion_activo():
+        return False
+    try:
+        driver.current_window_handle
+        return True
+    except Exception:
+        return False
+
+
+def soltar_sesion(driver):
+    """Cierra el chromedriver de una sesion muerta sin cerrar Comet."""
+    try:
+        driver.service.stop()
+    except Exception:
+        pass
+
+
+def buscar_chrome():
+    """Devuelve la ruta de comet.exe, o None si no esta en ninguna ruta conocida."""
+    for ruta in RUTAS_NAVEGADOR:
+        if ruta and os.path.isfile(ruta):
+            return ruta
+    return None
+
+
+def lanzar_chrome():
+    """
+    Abre Comet en modo depuracion, igual que iniciar_comet_monitor.bat.
+
+    Devuelve True si se pudo lanzar; eso no garantiza que ya responda, de eso
+    se encarga conectar_chrome().
+
+    Se lanza con "start", igual que el .bat: el comando vuelve al instante y
+    Comet queda como proceso independiente, asi que sigue abierto aunque se
+    detenga el monitor con Ctrl+C.
+    """
+    ruta = buscar_chrome()
+    if not ruta:
+        print("   ✗ No se encontró comet.exe para relanzarlo")
+        log.error("No se encontro comet.exe para relanzarlo")
+        return False
+    try:
+        subprocess.run(
+            ["cmd", "/c", "start", "", ruta,
+             f"--remote-debugging-port={PUERTO_DEPURACION}", f"--user-data-dir={PERFIL_NAVEGADOR}"],
+            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=15, check=True,
+        )
+    except (OSError, subprocess.SubprocessError) as e:
+        print(f"   ✗ No se pudo relanzar Comet: {e}")
+        log.error(f"No se pudo relanzar Comet: {e}")
+        return False
+    print("   🔄 Comet relanzado")
+    log.warning(f"Comet relanzado automaticamente: {ruta}")
+    return True
+
+
+def recuperar_sesion(driver):
+    """
+    Recupera la sesion con Comet y devuelve una nueva, relanzando Comet si
+    hace falta.
+
+    Avisos por Telegram:
+    - Si reconecta al primer intento (solo se perdio la sesion, Comet seguia
+      abierto), no se avisa: queda en el registro.
+    - Si Comet estaba caido y el relanzamiento lo recupera, un solo mensaje
+      diciendo que se relanzo.
+    - Si no se recupera, aviso de que el monitor esta CIEGO; se sigue intentando
+      (reconexion cada ESPERA_RECONEXION, relanzamiento cada
+      INTERVALO_RELANZAMIENTO) y se avisa de nuevo al recuperarse.
+
+    No reintenta ninguna URL, asi que no anade ninguna visita a las boleteras.
+    """
+    print("\n✗ Se perdió la sesión con Comet. Reconectando...")
+    log.error("Sesion con Comet perdida, reconectando")
+    soltar_sesion(driver)
+
+    # Comet sigue vivo (solo se perdio la sesion): basta con reconectar.
+    if puerto_depuracion_activo():
+        nuevo = conectar_chrome()
+        if nuevo:
+            log.info("Sesion con Comet recuperada al primer intento")
+            return nuevo
+
+    inicio = time.time()
+    ultimo_relanzamiento = None
+    aviso_caida_enviado = False
+    while True:
+        relanzado = False
+        if ultimo_relanzamiento is None or time.time() - ultimo_relanzamiento >= INTERVALO_RELANZAMIENTO:
+            ultimo_relanzamiento = time.time()
+            relanzado = lanzar_chrome()
+            if relanzado:
+                nuevo = conectar_chrome()
+                if nuevo:
+                    avisar_recuperacion(inicio, aviso_caida_enviado, relanzado=True)
+                    return nuevo
+
+        if not aviso_caida_enviado:
+            aviso_caida_enviado = enviar_notificacion(
+                "⚠️ El monitor perdió la conexión con Comet y está CIEGO: "
+                "no puede ver disponibilidad hasta que Comet vuelva."
+                + chr(10) + chr(10)
+                + "Intenté relanzarlo y no respondió. Sigo reintentando: reconexión "
+                + f"cada {ESPERA_RECONEXION} s y relanzamiento cada "
+                + f"{INTERVALO_RELANZAMIENTO // 60} min. Si hay un Comet abierto con el "
+                + "perfil del monitor sin modo debug, ciérralo."
+                + chr(10) + chr(10)
+                + f"⏰ {time.strftime('%H:%M:%S')}"
+            )
+        print(f"   Comet no responde. Nuevo intento en {ESPERA_RECONEXION} s...")
+        time.sleep(ESPERA_RECONEXION)
+
+        # Solo se intenta si Comet ya contesta (p. ej. lo abrio el usuario).
+        if puerto_depuracion_activo():
+            nuevo = conectar_chrome()
+            if nuevo:
+                avisar_recuperacion(inicio, aviso_caida_enviado, relanzado=False)
+                return nuevo
+
+
+def avisar_recuperacion(inicio, aviso_caida_enviado, relanzado):
+    """Registra y avisa por Telegram de que el monitor vuelve a tener Comet."""
+    segundos = int(time.time() - inicio)
+    duracion = f"{segundos} s" if segundos < 120 else f"{segundos // 60} min"
+    log.info(f"Sesion con Comet recuperada tras {duracion} sin conexion (relanzado={relanzado})")
+    if aviso_caida_enviado:
+        texto = f"✅ Conexión con Comet recuperada tras {duracion}. El monitor vuelve a vigilar."
+    else:
+        texto = (
+            "🔄 Comet se cerró o dejó de responder y lo relancé automáticamente. "
+            f"El monitor vuelve a vigilar ({duracion} sin conexión)."
+        )
+    enviar_notificacion(
+        texto
+        + chr(10) + chr(10)
+        + "Si alguna página te pide volver a iniciar sesión, hazlo en esa ventana."
+        + chr(10) + chr(10)
+        + f"⏰ {time.strftime('%H:%M:%S')}"
+    )
+
+
+def es_url_pasala(url):
+    return "pasala.checkout.tuboleta.com" in url
+
+
+def es_url_tbpgpal(url):
+    return "tbpgpal.checkout.tuboleta.com" in url
+
+
+def es_url_ticketmaster(url):
+    """Detecta si la URL es de Ticketmaster.co"""
+    return "ticketmaster.co" in url
+
+
+def es_url_taquillalive(url):
+    """Detecta si la URL es de TaquillalLive"""
+    return "taquillalive.com" in url
+
+
+def es_url_taquillalive_performance_details(url):
+    """Detecta si es la página de detalles del evento"""
+    return "taquillalive.com" in url and "performance-details" in url
+
+
+def es_url_taquillalive_book(url):
+    """Detecta si es la página de compra de entradas"""
+    return "taquillalive.com" in url and "book-performance" in url
+
+
+def es_url_eleventickets(url):
+    """Detecta si es una URL de Eleventickets (Final Sudamericana)"""
+    return "eleventickets.com" in url
+
+
+# ============================================================
+# DETECCION DE PAGINAS DE BLOQUEO / VERIFICACION ANTI-BOT
+# ============================================================
+# Sin esto, cuando una boletera responde con un desafio anti-bot el script lee
+# la pagina, no encuentra localidades y lo interpreta como "no hay nada". El
+# monitor se queda ciego sin avisar: ni detecta boletas ni informa del problema.
+#
+# Importante: NO basta con ver que la pagina carga scripts de Cloudflare
+# Turnstile o AWS WAF. Ticketmaster los carga en TODAS sus paginas, tambien
+# cuando funcionan con normalidad. Detectarlos como bloqueo daria una falsa
+# alarma en cada ronda. Lo que se busca son las senales del desafio en si.
+
+SENALES_BLOQUEO_TITULO = [
+    "just a moment",
+    "attention required",
+    "access denied",
+    "acceso denegado",
+    "pardon our interruption",
+    "security check",
+    "un momento",
+]
+
+SENALES_BLOQUEO_TEXTO = [
+    "verify you are human",
+    "verifique que usted es un ser humano",
+    "verificando que usted es un ser humano",
+    "unusual traffic",
+    "trafico inusual",
+    "actividad inusual",
+    "has been blocked",
+    "ha sido bloqueado",
+    "hemos detectado",
+    "automated requests",
+    "solicitudes automatizadas",
+    "checking your browser",
+]
+
+# Una pagina de desafio es corta. El umbral evita marcar como bloqueo una
+# pagina normal que mencione alguna de esas frases en su contenido.
+LONGITUD_MAXIMA_PAGINA_BLOQUEO = 2500
+
+# Igual criterio para la sala de espera: es una pagina corta, no un evento con
+# sus terminos y condiciones.
+LONGITUD_MAXIMA_PAGINA_ESPERA = 2500
+
+
+def detectar_bloqueo(driver):
+    """
+    Indica si la pagina cargada es un desafio anti-bot en vez del contenido.
+
+    Devuelve (bloqueado, motivo).
+    """
+    try:
+        titulo = (driver.title or "").lower()
+
+        for senal in SENALES_BLOQUEO_TITULO:
+            if senal in titulo:
+                return True, f"titulo de la pagina: '{driver.title}'"
+
+        cuerpo = driver.find_element(By.TAG_NAME, "body").text
+        texto = cuerpo.lower()
+
+        if len(cuerpo) <= LONGITUD_MAXIMA_PAGINA_BLOQUEO:
+            for senal in SENALES_BLOQUEO_TEXTO:
+                if senal in texto:
+                    return True, f"texto de desafio: '{senal}'"
+
+        return False, None
+
+    except WebDriverException:
+        # Si no se puede inspeccionar, no se afirma que haya bloqueo: es
+        # preferible seguir monitoreando a detener el bot por un falso positivo.
+        return False, None
+
+
+def detectar_sala_espera(texto_pagina):
+    """
+    Indica si la pagina es una cola virtual / sala de espera.
+
+    No es un bloqueo, es lo contrario: la venta abrio y hay tanta demanda que
+    hay fila. Se avisa igualmente porque es el momento en que hay que entrar.
+
+    Una sala de espera es una pagina corta. Las paginas de evento llevan miles
+    de caracteres de terminos y condiciones, y frases como "tu turno" aparecen
+    ahi como texto fijo ("Cuando sea tu turno para comprar, se requerira tu
+    numero de Army Membership" en BTS). Sin este limite, un evento sin venta
+    abierta se leia como "la venta abrio" y avisaba en falso, igual que
+    detectar_bloqueo() evita con LONGITUD_MAXIMA_PAGINA_BLOQUEO.
+    """
+    if len(texto_pagina or '') > LONGITUD_MAXIMA_PAGINA_ESPERA:
+        return False, None
+
+    texto = (texto_pagina or '').lower()
+    for senal in SENALES_SALA_ESPERA:
+        if senal in texto:
+            return True, senal
+    return False, None
+
+
+def avisar_bloqueo(estado_bloqueo, url, motivo):
+    """
+    Notifica un bloqueo por Telegram, como maximo una vez por hora y por sitio,
+    para no convertir el propio aviso en una avalancha de mensajes.
+    """
+    from urllib.parse import urlparse
+
+    sitio = urlparse(url).netloc
+    ahora = time.time()
+    ultimo = estado_bloqueo.get(sitio, 0)
+
+    if ahora - ultimo < INTERVALO_AVISO_BLOQUEO:
+        return False
+
+    mensaje = (
+            "ATENCION: posible bloqueo anti-bot"
+            + chr(10) + chr(10)
+            + f"Sitio: {sitio}" + chr(10)
+            + f"Motivo: {motivo}" + chr(10)
+            + f"URL: {url}" + chr(10) + chr(10)
+            + "El monitor NO puede leer disponibilidad en este sitio mientras dure. "
+            + "Abre la ventana de Comet y resuelve la verificacion a mano."
+            + chr(10) + chr(10)
+            + f"Hora: {time.strftime('%H:%M:%S')}"
+    )
+    enviado = enviar_notificacion(mensaje)
+    if enviado:
+        # La hora se anota solo si el aviso salio. Antes se anotaba antes de
+        # enviar, y un fallo de Telegram silenciaba el aviso de bloqueo una hora.
+        estado_bloqueo[sitio] = ahora
+    else:
+        log.error(f"Aviso de BLOQUEO NO ENVIADO, se reintentara | {url}")
+    return enviado
+
+
+# JavaScript que lee que sectores ofrece una pagina de Ticketmaster.
+#
+# La unidad de aviso es el SECTOR, que es lo que la propia pagina presenta en
+# su panel "Seleccionar sector". No se usan las secciones como unidad porque no
+# significan lo mismo en cada recinto: en Calvin Harris son localidades reales
+# ("119", "Platea 1"), pero en Anuel AA son asientos numerados y salen 251
+# elementos llamados "1", "2", "34". Un sector se considera disponible si
+# alguna de sus secciones lo esta, que es el criterio con el que la pagina
+# pinta su mapa.
+#
+# Dos fuentes, por orden:
+#   1. El estado interno (objeto global "App"): da sectores disponibles Y
+#      agotados, mas el detalle de secciones libres.
+#   2. El DOM (elementos .sectorOption): solo lo disponible, pero es lo que el
+#      usuario ve en pantalla. Sirve de red si cambia la estructura interna.
+#
+# No genera peticiones extra: todo esta en el HTML que el bucle ya descarga.
+#
+# El recorrido es iterativo, con registro de nodos visitados. Es imprescindible:
+# "App" es una aplicacion Backbone con referencias circulares y en los eventos
+# agotados no existe el catalogo, asi que la busqueda recorre el grafo entero.
+# Sin control de ciclos no termina nunca y cuelga el bucle de monitoreo.
+#
+# La profundidad debe ser holgada: el catalogo aparece a distinta hondura segun
+# el evento (nivel 6 en Calvin Harris, nivel 9 en Anuel AA). Con el limite en 8
+# los eventos como Anuel se leian como agotados teniendo boletas a la venta.
+JS_SECTORES_TICKETMASTER = """
+try {
+    var sectores = null;
+
+    if (window.App) {
+        var vistos = new Set();
+        var pendientes = [[window.App, 0]];
+        var nodos = 0;
+
+        while (pendientes.length > 0) {
+            var par = pendientes.pop();
+            var nodo = par[0];
+            var prof = par[1];
+
+            if (!nodo || typeof nodo !== 'object' || prof > 15) { continue; }
+            if (vistos.has(nodo)) { continue; }
+            vistos.add(nodo);
+
+            nodos = nodos + 1;
+            if (nodos > 20000) { break; }
+
+            if (typeof Node !== 'undefined' && nodo instanceof Node) { continue; }
+
+            if (Array.isArray(nodo)) {
+                if (nodo.length > 0 && nodo[0] && typeof nodo[0] === 'object'
+                    && 'name' in nodo[0] && 'rates' in nodo[0] && 'sections' in nodo[0]) {
+                    sectores = nodo;
+                    break;
+                }
+                for (var i = 0; i < nodo.length; i++) {
+                    pendientes.push([nodo[i], prof + 1]);
+                }
+                continue;
+            }
+
+            for (var k in nodo) {
+                try { pendientes.push([nodo[k], prof + 1]); } catch (e) {}
+            }
+        }
+    }
+
+    if (sectores) {
+        var salida = [];
+        sectores.forEach(function (sector) {
+            var nombre = (sector.name || '').toString().trim();
+            if (!nombre) { return; }
+            var secciones = sector.sections || [];
+            var libres = [];
+            secciones.forEach(function (seccion) {
+                if (seccion.available) {
+                    var n = (seccion.name || '').toString().trim();
+                    if (n) { libres.push(n); }
+                }
+            });
+            salida.push({
+                nombre: nombre,
+                disponible: libres.length > 0,
+                secciones: libres,
+                totalSecciones: secciones.length
+            });
+        });
+        return {origen: 'estado', sectores: salida};
+    }
+
+    var pintados = document.querySelectorAll('.sectorOption');
+    if (pintados.length > 0) {
+        var salidaDom = [];
+        for (var j = 0; j < pintados.length; j++) {
+            var titulo = pintados[j].querySelector('h5');
+            var texto = (titulo ? titulo.textContent : pintados[j].textContent).trim();
+            if (texto) {
+                salidaDom.push({nombre: texto, disponible: true, secciones: [], totalSecciones: 0});
+            }
+        }
+        return {origen: 'dom', sectores: salidaDom};
+    }
+
+    return null;
+} catch (e) {
+    return null;
+}
+"""
+
+
+def verificar_disponibilidad_ticketmaster(driver, url):
+    """
+    Devuelve las localidades disponibles en Ticketmaster, una por una.
+
+    Antes esta funcion solo miraba si existia el boton "Ver entradas" y
+    devolvia el NOMBRE DEL EVENTO como si fuera una localidad. Eso hacia dos
+    cosas mal: no decia que localidades habia, y los filtros por localidad
+    nunca casaban (comparaban "PLATEA 1" contra el titulo del evento).
+
+    Ahora se leen las secciones del estado interno de la pagina, que es lo
+    mismo que usa el mapa para pintar en naranja lo disponible.
+    """
+    try:
+        print(f"\n-> Navegando a Ticketmaster: {url}")
+        navegar(driver, url)
+        time.sleep(3)
+
+        nombre_evento = obtener_nombre_evento(driver)
+        print(f"   Evento: {nombre_evento}")
+
+        # Cola de Queue-it por dominio, antes que nada: no depende del texto
+        # (que cambia segun el estado de la fila y puede pasar de
+        # LONGITUD_MAXIMA_PAGINA_ESPERA) ni puede confundirse con un bloqueo.
+        # Verificado en vivo con BTS (sep-2026): el evento redirige a
+        # ticketmasterco.queue-it.net.
+        if "queue-it.net" in (driver.current_url or "").lower():
+            print("   SALA DE ESPERA detectada (redireccion a queue-it.net) - LA VENTA ESTA ABIERTA")
+            log.warning(f"SALA DE ESPERA (redireccion a queue-it.net): la venta abrio | {url}")
+            return [f"{nombre_evento} - SALA DE ESPERA, la venta abrio {MARCADOR_SIN_DETALLE}"], [], url
+
+        bloqueado, motivo = detectar_bloqueo(driver)
+        if bloqueado:
+            print(f"   BLOQUEO detectado: {motivo}")
+            log.warning(f"BLOQUEO anti-bot en Ticketmaster ({motivo}) | {url}")
+            return [], [], url
+
+        datos = driver.execute_script(JS_SECTORES_TICKETMASTER)
+
+        if datos and datos.get("sectores"):
+            sectores = datos["sectores"]
+            disponibles = [s["nombre"] for s in sectores if s["disponible"]]
+            agotadas = [s["nombre"] for s in sectores if not s["disponible"]]
+
+            origen = "estado interno" if datos.get("origen") == "estado" else "panel visible"
+            print(f"   Sectores leidos: {len(sectores)} (via {origen})")
+
+            if disponibles:
+                print(f"   DISPONIBLES ({len(disponibles)}):")
+                for sector in sectores:
+                    if not sector["disponible"]:
+                        continue
+                    detalle = ""
+                    # El detalle de secciones solo se muestra cuando son pocas y
+                    # por tanto significativas: en algunos recintos las secciones
+                    # son asientos numerados y listarlas seria ruido.
+                    if sector["secciones"] and sector["totalSecciones"] <= LIMITE_DETALLE_SECCIONES:
+                        detalle = "  ->  " + ", ".join(sector["secciones"])
+                    nombre_sector = sector["nombre"]
+                    print(f"      - {nombre_sector}{detalle}")
+            else:
+                print("   Sin sectores disponibles")
+
+            return disponibles, agotadas, url
+
+        # Reserva: si la pagina cambia de formato y no se puede leer el estado,
+        # se cae al comportamiento anterior (solo saber si hay venta abierta),
+        # avisando de que el detalle por localidad no esta disponible.
+        # Un evento agotado no publica catalogo de sectores: la pagina solo
+        # muestra el rotulo AGOTADO y ni siquiera pinta el boton de compra.
+        # Es un resultado normal, no un fallo de lectura.
+        try:
+            texto_pagina = driver.find_element(By.TAG_NAME, "body").text
+        except WebDriverException:
+            texto_pagina = ""
+
+        if "AGOTADO" in texto_pagina.upper():
+            print("   AGOTADO - el evento no tiene localidades a la venta")
+            return [], [nombre_evento], url
+
+        # Un evento terminado no vuelve a abrir venta: sin esto caeria en el
+        # aviso de "la pagina cambio" de mas abajo en cada ronda.
+        if "EVENTO FINALIZADO" in texto_pagina.upper():
+            print("   EVENTO FINALIZADO - sin venta")
+            return [], [nombre_evento], url
+
+        # Cola virtual: la venta esta abierta, solo que hay fila. Es el aviso
+        # mas urgente de todos, aunque no se pueda decir que localidades hay.
+        en_cola, senal_cola = detectar_sala_espera(texto_pagina)
+        if en_cola:
+            print(f"   SALA DE ESPERA detectada ({senal_cola}) - LA VENTA ESTA ABIERTA")
+            log.warning(f"SALA DE ESPERA ({senal_cola}): la venta abrio | {url}")
+            return [f"{nombre_evento} - SALA DE ESPERA, la venta abrio {MARCADOR_SIN_DETALLE}"], [], url
+
+        print("   AVISO: no se pudo leer el detalle por localidad, se usa el metodo antiguo")
+        log.warning(f"Ticketmaster sin catalogo legible, modo sin detalle | {url}")
+        try:
+            driver.find_element(By.XPATH,
+                                "//button[contains(text(), 'Ver entradas')] | "
+                                "//a[contains(text(), 'Ver entradas')]")
+            print("   Boton 'Ver entradas' presente - HAY VENTA ABIERTA")
+            return [f"{nombre_evento} - venta abierta {MARCADOR_SIN_DETALLE}"], [], url
+        except NoSuchElementException:
+            pass
+
+        # Ni catalogo, ni AGOTADO, ni fila, ni boton. Antes esto se daba por
+        # agotado, y fue un error caro: en BTS (29-sep-2026) la pagina dejo de
+        # decir AGOTADO a las 14:28 y la fila de Queue-it aparecio a las 14:38.
+        # Esos 10 minutos son la pre-fila, donde Queue-it sortea el orden entre
+        # todos los que ya esperan y deja detras a los que llegan despues. El
+        # bot los reporto como agotado y el primer aviso salio a las 14:41,
+        # con ~18.000 personas delante. Una pagina que no se entiende no es un
+        # agotado: se avisa. Una pagina vacia (carga cortada) si se deja como
+        # antes, porque eso no es un cambio de la pagina sino una lectura fallida.
+        if not texto_pagina.strip():
+            print("   Pagina vacia - sin lectura")
+            return [], [nombre_evento], url
+
+        print("   La pagina ya no dice AGOTADO y no se reconoce - posible pre-fila o venta a punto de abrir")
+        log.warning(f"Ticketmaster: pagina sin AGOTADO ni catalogo ni boton, posible pre-fila "
+                    f"(url actual: {driver.current_url}) | {url}")
+        return [f"{nombre_evento} - la pagina cambio, posible pre-fila o venta a punto de abrir "
+                f"{MARCADOR_SIN_DETALLE}"], [], url
+
+    except Exception as e:
+        print(f"Error al verificar disponibilidad en Ticketmaster: {e}")
+        log.exception(f"Error en Ticketmaster: {url}")
+        return [], [], url
+
+
+ESPERA_MAPA_ELEVENTICKETS = 12  # Segundos maximos hasta que el mapa pinte sus bloques
+
+
+# La pagina del evento puede estar cerrada entre ventas (30-oct-2026: el enlace de la venta anterior
+# decia "Presentación bloqueada", sin mapa, y la home "VENTA DE ENTRADAS EN BREVE").
+JS_PRESENTACION_BLOQUEADA = "return /Presentaci.n bloqueada/i.test(document.body ? document.body.innerText : '');"
+
+# Enlaces a eventos en la home: en sus enlaces, en los destacados o porque redirige al unico que hay.
+JS_EVENTOS_HOME = r"""
+var ids = [], poner = function (i) { if (i && ids.indexOf(String(i)) < 0) { ids.push(String(i)); } };
+var m = /apresentacao\/([0-9a-f]+)/.exec(location.hash); if (m) { poner(m[1]); }
+document.querySelectorAll('a[href*="apresentacao/"]').forEach(function (a) {
+    var x = /apresentacao\/([0-9a-f]+)/.exec(a.href); if (x) { poner(x[1]); }
+});
+document.querySelectorAll('[ng-repeat*="destaques"]').forEach(function (e) {
+    var s = angular.element(e).scope(); if (s && s.slideItem) { poner(s.slideItem.idapresentacao); }
+});
+return {ids: ids, en_breve: /VENTA DE ENTRADAS EN BREVE/i.test(document.body ? document.body.innerText : '')};
+"""
+
+
+def _presentacion_bloqueada(driver):
+    return driver.execute_script(JS_PRESENTACION_BLOQUEADA) is True
+
+
+def _buscar_evento_en_home(driver, url):
+    """
+    Con el evento bloqueado, mira la home (una carga, solo mientras dure el bloqueo). Si publica
+    otro enlace, lee ese: la reserva lo atiende con la misma configuracion. Si dejo de decir "en
+    breve" sin enlace reconocible, avisa: una pagina que no se entiende no es un agotado.
+    """
+    base = url.split("#!")[0]
+    driver.get("about:blank")
+    navegar(driver, base + "#!/home")
+    time.sleep(3)
+    datos = {}
+    limite = time.time() + 5
+    while time.time() < limite:
+        datos = driver.execute_script(JS_EVENTOS_HOME) or {}
+        if datos.get("ids"):
+            break
+        time.sleep(0.5)
+    actual = url.rsplit("/", 1)[-1]
+    otros = [i for i in datos.get("ids", []) if i != actual]
+    if otros:
+        nueva = f"{base}#!/apresentacao/{otros[0]}"
+        print(f"   ENLACE NUEVO en la home: {nueva}")
+        log.warning(f"Eleventickets: enlace nuevo en la home {nueva} | {url}")
+        return verificar_disponibilidad_eleventickets(driver, nueva, buscar_en_home=False)
+    if datos and not datos.get("en_breve"):
+        print("   La home ya no dice 'en breve' - posible venta abierta")
+        return [f"Final Sudamericana - la home cambio, posible venta abierta {MARCADOR_SIN_DETALLE}"], [], url
+    return [], ["Presentacion bloqueada, venta en breve"], url
+
+
+def verificar_disponibilidad_eleventickets(driver, url, buscar_en_home=True):
+    """
+    Bloques del mapa de Eleventickets habilitados (disponibles) y deshabilitados (agotadas).
+
+    Se leen de las capas del mapa (`capa.dados.disabled`), lo mismo que usa la pagina para
+    dejar pulsar o no un sector. Habilitado NO garantiza entradas: el cupo real solo se sabe
+    al anadir al carrito ("¡El producto está agotado!"). Es la misma distincion
+    catalogo-vs-disponibilidad que en Ticketmaster y TaquillaLive, pero aqui leer el cupo
+    exigiria pulsar cada bloque (una peticion por bloque y ronda): no se hace.
+
+    Mientras se espera al mapa solo se consulta el estado de la pagina ya cargada (sin red):
+    el contenido llega unos segundos despues de la carga, como en las demas plataformas.
+    """
+    try:
+        print(f"\n-> Navegando a Eleventickets: {url}")
+        # La URL lleva "#!": dentro del mismo sitio get() solo cambia el ancla y no recarga.
+        # about:blank no hace ninguna peticion.
+        if "eleventickets.com" in (driver.current_url or ""):
+            driver.get("about:blank")
+        navegar(driver, url)
+        time.sleep(3)
+
+        limite = time.time() + ESPERA_MAPA_ELEVENTICKETS
+        bloques = driver.execute_script(reserva_eleventickets.JS_BLOQUES)
+        while not bloques and time.time() < limite:
+            if _presentacion_bloqueada(driver):
+                print("   Presentacion bloqueada: se mira la home por si hay otro enlace")
+                log.info(f"Eleventickets: presentacion bloqueada | {url}")
+                if buscar_en_home:
+                    return _buscar_evento_en_home(driver, url)
+                return [], [], url
+            time.sleep(0.5)
+            bloques = driver.execute_script(reserva_eleventickets.JS_BLOQUES)
+
+        if not bloques:
+            print("   No se pudo leer el mapa de sectores")
+            return [], [], url
+
+        disponibles = [b["nombre"] for b in bloques if b["libre"]]
+        agotadas = [b["nombre"] for b in bloques if not b["libre"]]
+        print(f"   Bloques leidos: {len(bloques)} (habilitados: {len(disponibles)})")
+        for nombre in disponibles[:LIMITE_DETALLE_SECCIONES]:
+            print(f"      - {nombre}")
+        return disponibles, agotadas, url
+
+    except Exception as e:
+        print(f"Error al verificar disponibilidad en Eleventickets: {e}")
+        log.exception(f"Error en Eleventickets: {url}")
+        return [], [], url
+
+
+# def es_url_taquillalive(url):
+#     """Detecta si la URL es de TaquillalLive"""
+#     return "taquillalive.com" in url
+#
+#
+# def es_url_taquillalive_performance_details(url):
+#     """Detecta si es la página de detalles del evento"""
+#     return "taquillalive.com" in url and "performance-details" in url
+#
+#
+# def es_url_taquillalive_book(url):
+#     """Detecta si es la página de compra de entradas"""
+#     return "taquillalive.com" in url and "book-performance" in url
+
+
+def verificar_disponibilidad_taquillalive_details(driver, url):
+    """
+    Verifica disponibilidad en la página de detalles de TaquillalLive
+    Busca el botón "Compra Tus Tiquetes"
+
+    Esta página solo publica el catálogo de localidades (nombre y precio) y un
+    botón de compra genérico: nunca dice cuáles localidades están realmente
+    disponibles en este instante, eso solo lo tiene book-performance
+    (verificar_disponibilidad_taquillalive_book). Por eso, cuando el botón
+    aparece, se reporta como un aviso SIN DETALLE en vez de usar el nombre del
+    evento como si fuera una localidad: eso es justo el error que ya se
+    corrigió en Ticketmaster (ver comentario en
+    verificar_disponibilidad_ticketmaster) -- un filtro por localidad nunca
+    casa contra el nombre del evento y el aviso se perdía en silencio.
+
+    performance-details tambien puede pasar por la sala de espera de
+    queue-it.net en eventos de mucha demanda (verificado en vivo con Stream
+    Fighters/Westcol): la redireccion de vuelta a TaquillaLive no siempre
+    termina dentro de los 3 s de espera de aqui, y sin esta deteccion el
+    boton se busca todavia en la pagina de queue-it, nunca aparece y se
+    reporta AGOTADO aunque la venta este abierta.
+    """
+    try:
+        print(f"\n→ Navegando a TaquillalLive (Details): {url}")
+        navegar(driver, url)
+        time.sleep(3)
+
+        # Obtener nombre del evento (best-effort: en la pagina de queue-it no
+        # va a encontrar nada con estos selectores, y no pasa nada)
+        nombre_evento = None
+        try:
+            nombre_evento = driver.find_element(By.XPATH,
+                                                "//h1 | //h2 | //div[@class='event-title'] | //span[@class='artist-name']"
+                                                ).text.strip()
+        except WebDriverException:
+            pass
+        if not nombre_evento:
+            nombre_evento = "Evento TaquillalLive"
+
+        print(f"   Evento: {nombre_evento}")
+
+        try:
+            texto_pagina = driver.find_element(By.TAG_NAME, "body").text
+        except WebDriverException:
+            texto_pagina = ""
+
+        en_cola, senal_cola = detectar_sala_espera(texto_pagina)
+        en_queue_it = "queue-it.net" in (driver.current_url or "").lower()
+
+        if en_cola or en_queue_it:
+            motivo = senal_cola or "redireccion a queue-it.net"
+            print(f"   ⏳ ALTA DEMANDA / COLA VIRTUAL detectada ({motivo}) - puede haber venta abierta")
+            log.warning(f"ALTA DEMANDA / COLA VIRTUAL en TaquillaLive (details) ({motivo}) | {url}")
+            return [f"{nombre_evento} - ALTA DEMANDA, revisa ya {MARCADOR_SIN_DETALLE}"], [], url
+
+        # ✅ Buscar el botón "Compra Tus Tiquetes"
+        try:
+            driver.find_element(By.XPATH,
+                                "//button[contains(text(), 'Compra Tus Tiquetes')] | "
+                                "//a[contains(text(), 'Compra Tus Tiquetes')] | "
+                                "//button[contains(text(), 'COMPRA')] | "
+                                "//a[contains(@class, 'buy-button')]"
+                                )
+
+            print(f"   ✅ Botón 'Compra Tus Tiquetes' encontrado - venta abierta (sin detalle por localidad)")
+            return [f"{nombre_evento} - venta abierta {MARCADOR_SIN_DETALLE}"], [], url
+
+        except WebDriverException:
+            print(f"   ❌ Botón 'Compra Tus Tiquetes' NO encontrado - AGOTADO")
+            return [], [nombre_evento], url
+
+    except Exception as e:
+        print(f"✗ Error al verificar disponibilidad en TaquillalLive (Details): {e}")
+        log.exception(f"Error en TaquillaLive (details): {url}")
+        return [], [], url
+
+
+def verificar_disponibilidad_taquillalive_book(driver, url):
+    """
+    Verifica disponibilidad en la página de compra de TaquillalLive
+    Detecta sectores disponibles en el panel derecho
+
+    Dos comportamientos verificados contra páginas reales (evento Feid,
+    sep-2026) que el detector debe distinguir de un agotado real:
+
+    1. Cola virtual / alta demanda: un evento con mucha demanda (p. ej.
+       Stream Fighters) redirige book-performance entero a una sala de espera
+       de terceros en queue-it.net, con markup nada que ver con TaquillaLive.
+       Cuando la demanda es alta pero sigue en TaquillaLive, la propia página
+       oculta los tres sectores y muestra el aviso "Sin disponibilidad por
+       alta demanda del evento, en el momento todos los tickets están en
+       proceso de compra por otros usuarios" -- eso NO es que se agotó, es
+       que el cupo está retenido en el carrito de otro comprador en ese
+       instante exacto, y minutos (a veces segundos) después vuelve a
+       liberarse. Ambos casos se tratan igual que la sala de espera de
+       Ticketmaster: se avisa SIN DETALLE en vez de reportar 0 disponibles.
+    2. Cada sector vive SIEMPRE en el DOM dentro de
+       ".ticket-list-box[data-section_id]" con el nombre en ".sector_name":
+       ese catálogo no cambia. Lo que sí cambia en vivo es la VISIBILIDAD
+       (style="display:none") de cada caja según si su cupo está libre o
+       retenido -- es la misma distinción catálogo-vs-disponibilidad-real
+       que ya se documentó para Ticketmaster (sector.available siempre true,
+       lo real está en sector.sections[].available). Por eso aquí se usa
+       is_displayed(), no sector.text: Selenium devuelve texto vacío para un
+       elemento oculto, y decidir por texto vacío hacía que una caja
+       retenida se descartara en silencio en vez de contarse como agotada.
+    """
+    try:
+        print(f"\n→ Navegando a TaquillalLive (Book): {url}")
+        navegar(driver, url)
+        time.sleep(4)  # Esperar más tiempo para que cargue el mapa
+
+        # Obtener nombre del evento
+        nombre_evento = None
+        try:
+            nombre_evento = driver.find_element(By.XPATH,
+                                                "//h1 | //h2[@class='event-title'] | //div[@class='title']"
+                                                ).text.strip()
+        except WebDriverException:
+            try:
+                # Obtener del título de la página
+                nombre_evento = driver.title.split('|')[0].strip() if '|' in driver.title else driver.title
+            except WebDriverException:
+                nombre_evento = "Evento TaquillalLive"
+
+        if not nombre_evento:
+            nombre_evento = "Evento TaquillalLive"
+
+        print(f"   Evento: {nombre_evento}")
+
+        # Cola virtual / alta demanda: hay que avisar igual, no dar el evento
+        # por agotado. detectar_sala_espera ya reconoce "alta demanda", que es
+        # justo la frase que usa TaquillaLive cuando retiene todos los cupos.
+        try:
+            texto_pagina = driver.find_element(By.TAG_NAME, "body").text
+        except WebDriverException:
+            texto_pagina = ""
+
+        en_cola, senal_cola = detectar_sala_espera(texto_pagina)
+        en_queue_it = "queue-it.net" in (driver.current_url or "").lower()
+
+        if en_cola or en_queue_it:
+            motivo = senal_cola or "redireccion a queue-it.net"
+            print(f"   ⏳ ALTA DEMANDA / COLA VIRTUAL detectada ({motivo}) - puede haber cupo")
+            log.warning(f"ALTA DEMANDA / COLA VIRTUAL en TaquillaLive (book) ({motivo}) | {url}")
+            return [f"{nombre_evento} - ALTA DEMANDA, revisa ya {MARCADOR_SIN_DETALLE}"], [], url
+
+        localidades_disponibles = []
+        localidades_agotadas = []
+
+        # Selector especifico, verificado contra la pagina real: cada sector
+        # es un .ticket-list-box con el nombre en .sector_name. Se prueba
+        # primero porque el barrido generico de abajo hace que selectores tan
+        # anchos como div[contains(@class,'ticket')] cuenten tambien los
+        # contenedores envolventes del mismo sector (ticket-list-boxes,
+        # ticket-list-trigger, ticket-list-content) como si fueran sectores
+        # aparte -- la causa mas probable de los 22 "sectores" que se leyeron
+        # alguna vez para Gorillaz.
+        #
+        # By.CLASS_NAME hace coincidencia por TOKEN exacto de clase, a
+        # diferencia de un XPath contains(@class, 'ticket-list-box'): ese
+        # contains() es un substring y "ticket-list-boxes" (el contenedor
+        # que envuelve los tres sectores, PLURAL) tambien lo contiene. Con
+        # contains() el contenedor entraba primero en la lista, se le
+        # asignaba el nombre del primer sector (GREEN PRINT) por ser el
+        # primer .sector_name en su subarbol, pero is_displayed() se
+        # evaluaba sobre el contenedor -- que esta visible mientras exista
+        # CUALQUIER sector visible. Asi, ese primer sector quedaba marcado
+        # disponible aunque su propia caja estuviera oculta, y para cuando
+        # se llegaba a su caja real el nombre ya estaba deduplicado y su
+        # estado real nunca se comprobaba. Verificado en vivo (Feid,
+        # sep-2026): GREEN PRINT salia disponible de forma persistente,
+        # sin depender de ningun parpadeo, exactamente por esto.
+        cajas = driver.find_elements(By.CLASS_NAME, "ticket-list-box")
+
+        if not cajas:
+            # Reserva: estructura distinta a la ya verificada (otro evento
+            # puede usar otro theme). Se mantiene el barrido generico anterior
+            # en vez de dar el evento por agotado sin más.
+            cajas = driver.find_elements(By.XPATH,
+                                         "//div[contains(@class, 'sector')] | "
+                                         "//div[contains(@class, 'section')] | "
+                                         "//li[contains(@class, 'ticket')] | "
+                                         "//button[contains(@class, 'sector')]"
+                                         )
+            print(f"   ℹ️ Sin .ticket-list-box, se usa el barrido generico: {len(cajas)} elementos")
+        else:
+            print(f"   ✓ Se encontraron {len(cajas)} sectores (.ticket-list-box)")
+
+        if not cajas:
+            print("   ❌ No se encontraron sectores en la página")
+            return [], [nombre_evento], url
+
+        for caja in cajas:
+            try:
+                # El nombre viene del catálogo (.sector_name si existe), asi
+                # que se lee con textContent: a diferencia de .text, no
+                # depende de que la caja esté visible en este instante.
+                try:
+                    nombre_sector = (caja.find_element(By.CLASS_NAME, "sector_name")
+                                     .get_attribute("textContent") or "").strip()
+                except WebDriverException:
+                    texto_caja = (caja.get_attribute("textContent") or "").strip()
+                    lineas = [l.strip() for l in texto_caja.split('\n') if l.strip()]
+                    nombre_sector = lineas[0] if lineas else ""
+
+                if not nombre_sector or len(nombre_sector) < 3:
+                    continue
+                if nombre_sector in ['Filtrar', 'Siguente', 'Siguiente', '+', '-']:
+                    continue
+                if nombre_sector in localidades_disponibles or nombre_sector in localidades_agotadas:
+                    continue
+
+                clases = (caja.get_attribute("class") or "").lower()
+                texto_caja = caja.get_attribute("textContent") or ""
+
+                es_disponible = True
+                if "disabled" in clases or "sold-out" in clases or "agotado" in clases:
+                    es_disponible = False
+                if caja.get_attribute("disabled"):
+                    es_disponible = False
+                if "Agotado" in texto_caja or "Sold Out" in texto_caja or "AGOTADO" in texto_caja:
+                    es_disponible = False
+                # El cupo retenido por el carrito de otro comprador se ve como
+                # la caja oculta (display:none), no como una clase "agotado".
+                if not caja.is_displayed():
+                    es_disponible = False
+
+                if es_disponible:
+                    localidades_disponibles.append(nombre_sector)
+                    print(f"   ✅ {nombre_sector}")
+                else:
+                    localidades_agotadas.append(nombre_sector)
+                    print(f"   ❌ {nombre_sector}")
+
+            except WebDriverException:
+                continue
+            except Exception:
+                log.exception(f"Error inesperado procesando un sector de TaquillaLive: {url}")
+                continue
+
+        print(f"\n📊 RESUMEN:")
+        print(f"   ✓ Disponibles: {len(localidades_disponibles)}")
+        print(f"   ✗ Agotadas: {len(localidades_agotadas)}")
+
+        if localidades_disponibles:
+            print(f"\n✅ Sectores DISPONIBLES en TaquillalLive:")
+            for idx, loc in enumerate(localidades_disponibles, 1):
+                print(f"   {idx}. {loc}")
+
+        return localidades_disponibles, localidades_agotadas, url
+
+    except Exception as e:
+        print(f"✗ Error al verificar disponibilidad en TaquillalLive (Book): {e}")
+        log.exception(f"Error en TaquillaLive (book): {url}")
+        return [], [], url
+
+
+def es_pagina_de_fechas(driver):
+    try:
+        fechas = driver.find_elements(By.XPATH,
+                                      "//a[contains(text(), 'jul')] | //a[contains(text(), 'ago')] | //a[contains(text(), 'sep')] | //a[contains(text(), 'oct')] | //button[contains(@class, 'date')]")
+        return len(fechas) > 0
+    except WebDriverException:
+        return False
+
+
+def obtener_primera_fecha_disponible(driver):
+    try:
+        print("   → Buscando primera fecha disponible...")
+        fechas = driver.find_elements(By.XPATH,
+                                      "//button[contains(@class, 'event-date')] | //a[contains(text(), 'COMPRAR')]")
+        if fechas:
+            print(f"   ✓ Fecha encontrada. Navegando...")
+            fechas[0].click()
+            time.sleep(3)
+            nueva_url = driver.current_url
+            print(f"   ✓ Nueva URL: {nueva_url}")
+            return True, nueva_url
+        else:
+            print("   ✗ No se encontraron fechas disponibles")
+            return False, None
+    except Exception as e:
+        print(f"   ✗ Error al buscar fechas: {e}")
+        return False, None
+
+
+# def contar_articulos_pasala(driver, url):
+#     """
+#     Cuenta artículos disponibles en Pásala verificando el atributo 'checked'
+#     Extrae el nombre del <span class="name"> dentro del label
+#     """
+#     try:
+#         print(f"\n→ Navegando a Pásala: {url}")
+#         driver.get(url)
+#
+#         try:
+#             WebDriverWait(driver, 5).until(
+#                 EC.presence_of_all_elements_located(
+#                     (By.CSS_SELECTOR, "input[id*='seat-cat-checkbox'][type='checkbox']")
+#                 )
+#             )
+#         except:
+#             print("   ⚠️ Timeout esperando checkboxes...")
+#             time.sleep(2)
+#
+#         time.sleep(1)
+#
+#         checkboxes = driver.find_elements(
+#             By.CSS_SELECTOR,
+#             "input[id*='seat-cat-checkbox'][type='checkbox']"
+#         )
+#
+#         print(f"✓ Se encontraron {len(checkboxes)} categorías totales")
+#
+#         articulos_disponibles = []
+#         articulos_no_disponibles = []
+#
+#         if len(checkboxes) == 0:
+#             print("   ℹ️ No hay categorías en esta página (completamente agotada)")
+#             return articulos_disponibles, articulos_no_disponibles, url
+#
+#         for checkbox in checkboxes:
+#             try:
+#                 is_checked = checkbox.get_attribute("checked") is not None
+#                 is_selected = checkbox.is_selected()
+#
+#                 # ✅ Obtener el nombre del <span class="name">
+#                 nombre_categoria = None
+#
+#                 # Intento 1: Buscar span.name en el label asociado
+#                 try:
+#                     checkbox_id = checkbox.get_attribute("id")
+#                     if checkbox_id:
+#                         label = driver.find_element(By.XPATH, f"//label[@for='{checkbox_id}']")
+#                         try:
+#                             # Buscar el <span class="name"> dentro del label
+#                             span_name = label.find_element(By.CSS_SELECTOR, "span.name")
+#                             nombre_categoria = span_name.text.strip()
+#                         except:
+#                             # Si no encuentra span.name, obtener todo el texto del label
+#                             nombre_categoria = label.text.strip()
+#                 except:
+#                     pass
+#
+#                 # Intento 2: Si falló, buscar span.name directamente
+#                 if not nombre_categoria or nombre_categoria == "":
+#                     try:
+#                         parent = checkbox.find_element(By.XPATH, "..")
+#                         span_name = parent.find_element(By.CSS_SELECTOR, "span.name")
+#                         nombre_categoria = span_name.text.strip()
+#                     except:
+#                         pass
+#
+#                 # Intento 3: Buscar el label hermano
+#                 if not nombre_categoria or nombre_categoria == "":
+#                     try:
+#                         label = checkbox.find_element(By.XPATH, "following-sibling::label")
+#                         try:
+#                             span_name = label.find_element(By.CSS_SELECTOR, "span.name")
+#                             nombre_categoria = span_name.text.strip()
+#                         except:
+#                             nombre_categoria = label.text.strip()
+#                     except:
+#                         pass
+#
+#                 # Fallback: Usar el ID si todo falla
+#                 if not nombre_categoria or nombre_categoria == "":
+#                     checkbox_id = checkbox.get_attribute("id") or "desconocida"
+#                     # Extraer la parte numérica del ID
+#                     id_limpio = checkbox_id.split('-')[-1] if '-' in checkbox_id else checkbox_id
+#                     nombre_categoria = f"Localidad ({id_limpio})"
+#
+#                 # Registrar según estado
+#                 if is_checked or is_selected:
+#                     articulos_disponibles.append(nombre_categoria)
+#                     print(f"   ✅ {nombre_categoria}")
+#                 else:
+#                     articulos_no_disponibles.append(nombre_categoria)
+#                     print(f"   ❌ {nombre_categoria}")
+#
+#             except Exception as e:
+#                 print(f"   ⚠️ Error procesando checkbox: {e}")
+#                 continue
+#
+#         print(f"\n📊 RESUMEN:")
+#         print(f"   ✓ Disponibles: {len(articulos_disponibles)}")
+#         print(f"   ✗ No disponibles: {len(articulos_no_disponibles)}")
+#
+#         if articulos_disponibles:
+#             print(f"\n✅ Categorías DISPONIBLES en Pásala:")
+#             for idx, art in enumerate(articulos_disponibles, 1):
+#                 print(f"   {idx}. {art}")
+#
+#         return articulos_disponibles, articulos_no_disponibles, url
+#
+#     except Exception as e:
+#         print(f"✗ Error al contar artículos Pásala: {e}")
+#         return [], [], url
+
+def contar_articulos_pasala(driver, url):
+    """
+    Cuenta artículos disponibles en Pásala usando JavaScript para extraer nombres
+    """
+    try:
+        print(f"\n→ Navegando a Pásala: {url}")
+        navegar(driver, url)
+
+        try:
+            WebDriverWait(driver, 5).until(
+                EC.presence_of_all_elements_located(
+                    (By.CSS_SELECTOR, "input[id*='seat-cat-checkbox'][type='checkbox']")
+                )
+            )
+        except WebDriverException:
+            print("   ⚠️ Timeout esperando checkboxes...")
+            time.sleep(2)
+
+        time.sleep(2)  # Espera extra para que renderice todo
+
+        checkboxes = driver.find_elements(
+            By.CSS_SELECTOR,
+            "input[id*='seat-cat-checkbox'][type='checkbox']"
+        )
+
+        print(f"✓ Se encontraron {len(checkboxes)} categorías totales")
+
+        articulos_disponibles = []
+        articulos_no_disponibles = []
+
+        if len(checkboxes) == 0:
+            print("   ℹ️ No hay categorías en esta página (completamente agotada)")
+            return articulos_disponibles, articulos_no_disponibles, url
+
+        for idx, checkbox in enumerate(checkboxes):
+            try:
+                is_checked = checkbox.get_attribute("checked") is not None
+                is_selected = checkbox.is_selected()
+
+                # ✅ NUEVO: Usar JavaScript para extraer el nombre
+                checkbox_id = checkbox.get_attribute("id")
+
+                # Script que busca el label por ID y extrae el nombre
+                js_script = f"""
+                var label = document.querySelector('label[for="{checkbox_id}"]');
+                if (label) {{
+                    var spanName = label.querySelector('span.name');
+                    if (spanName) {{
+                        return spanName.textContent.trim();
+                    }}
+                    return label.textContent.trim();
+                }}
+                return null;
+                """
+
+                nombre_categoria = driver.execute_script(js_script)
+
+                # Si JavaScript no funciona, fallback a búsqueda tradicional
+                if not nombre_categoria:
+                    try:
+                        label = driver.find_element(By.XPATH, f"//label[@for='{checkbox_id}']")
+                        span_name = label.find_element(By.CSS_SELECTOR, "span.name")
+                        nombre_categoria = span_name.text.strip()
+                    except WebDriverException:
+                        try:
+                            label = driver.find_element(By.XPATH, f"//label[@for='{checkbox_id}']")
+                            nombre_categoria = label.text.strip()
+                        except WebDriverException:
+                            nombre_categoria = None
+
+                # Si aún sigue vacío, usar fallback
+                if not nombre_categoria or nombre_categoria == "":
+                    id_limpio = checkbox_id.split('-')[-1] if checkbox_id and '-' in checkbox_id else "desconocida"
+                    nombre_categoria = f"Localidad ({id_limpio})"
+
+                # Registrar según estado
+                if is_checked or is_selected:
+                    articulos_disponibles.append(nombre_categoria)
+                    print(f"   ✅ {nombre_categoria}")
+                else:
+                    articulos_no_disponibles.append(nombre_categoria)
+                    print(f"   ❌ {nombre_categoria}")
+
+            except Exception as e:
+                print(f"   ⚠️ Error procesando checkbox {idx}: {e}")
+                log.exception(f"Error procesando una categoria de Pasala: {url}")
+                continue
+
+        print(f"\n📊 RESUMEN:")
+        print(f"   ✓ Disponibles: {len(articulos_disponibles)}")
+        print(f"   ✗ No disponibles: {len(articulos_no_disponibles)}")
+
+        if articulos_disponibles:
+            print(f"\n✅ Categorías DISPONIBLES en Pásala:")
+            for idx, art in enumerate(articulos_disponibles, 1):
+                print(f"   {idx}. {art}")
+
+        return articulos_disponibles, articulos_no_disponibles, url
+
+    except Exception as e:
+        print(f"✗ Error al contar artículos Pásala: {e}")
+        log.exception(f"Error en Pasala: {url}")
+        return [], [], url
+
+
+def buscar_disponibilidad_pasala(driver, url):
+    """
+    Busca disponibilidad en URLs de búsqueda de Pásala
+    Mejorado para detectar correctamente los eventos
+    """
+    try:
+        print(f"\n→ Navegando a búsqueda Pásala: {url}")
+        navegar(driver, url)
+        time.sleep(3)
+
+        # Buscar todos los eventos en los resultados de búsqueda
+        eventos = driver.find_elements(By.XPATH,
+                                       "//div[contains(@class, 'event')] | //div[contains(@class, 'product')] | //div[contains(@class, 'item')] | //div[contains(@class, 'card')]")
+
+        print(f"✓ Se encontraron {len(eventos)} eventos totales en búsqueda")
+
+        eventos_disponibles = []
+        eventos_agotados = []
+
+        if len(eventos) == 0:
+            print("   ℹ️ No hay eventos en los resultados de búsqueda")
+            return eventos_disponibles, eventos_agotados, url
+
+        # Iterar sobre cada evento
+        for idx, evento in enumerate(eventos):
+            try:
+                # ✅ MEJORADO: Buscar el nombre en múltiples ubicaciones posibles
+                nombre_evento = None
+
+                # Intento 1: h2
+                try:
+                    nombre_evento = evento.find_element(By.XPATH, ".//h2").text.strip()
+                except WebDriverException:
+                    pass
+
+                # Intento 2: h3
+                if not nombre_evento:
+                    try:
+                        nombre_evento = evento.find_element(By.XPATH, ".//h3").text.strip()
+                    except WebDriverException:
+                        pass
+
+                # Intento 3: span con clase event-name o title
+                if not nombre_evento:
+                    try:
+                        nombre_evento = evento.find_element(By.XPATH,
+                                                            ".//span[@class='event-name'] | .//span[@class='title'] | .//p[@class='title']").text.strip()
+                    except WebDriverException:
+                        pass
+
+                # Intento 4: Obtener todo el texto y tomar la primera línea
+                if not nombre_evento or nombre_evento == "":
+                    texto_completo = evento.text.strip()
+                    # Filtrar líneas vacías y tomar la primera línea significativa
+                    lineas = [l.strip() for l in texto_completo.split('\n') if l.strip() and len(l.strip()) > 5]
+                    if lineas:
+                        nombre_evento = lineas[0]
+                    else:
+                        nombre_evento = f"Evento #{idx + 1}"
+
+                # Si aún no tenemos nombre, usar genérico
+                if not nombre_evento or nombre_evento == "":
+                    nombre_evento = f"Evento #{idx + 1}"
+
+                # Buscar botón "Comprar" en este evento
+                try:
+                    boton_compra = evento.find_element(By.XPATH,
+                                                       ".//button[contains(text(), 'Comprar')] | .//a[contains(text(), 'Comprar')] | .//button[contains(@class, 'buy')] | .//button[contains(text(), 'COMPRAR')]")
+                    eventos_disponibles.append(nombre_evento)
+                    print(f"   ✅ {nombre_evento}")
+                except WebDriverException:
+                    eventos_agotados.append(nombre_evento)
+                    print(f"   ❌ {nombre_evento}")
+
+            except Exception as e:
+                print(f"   ⚠️ Error procesando evento {idx + 1}: {e}")
+                log.exception(f"Error procesando un evento de la busqueda de Pasala: {url}")
+                continue
+
+        print(f"\n📊 RESUMEN:")
+        print(f"   ✓ Disponibles: {len(eventos_disponibles)}")
+        print(f"   ✗ Agotados: {len(eventos_agotados)}")
+
+        if eventos_disponibles:
+            print(f"\n✅ Eventos DISPONIBLES en búsqueda Pásala:")
+            for idx, evt in enumerate(eventos_disponibles, 1):
+                print(f"   {idx}. {evt}")
+
+        return eventos_disponibles, eventos_agotados, url
+
+    except Exception as e:
+        print(f"✗ Error al buscar disponibilidad en búsqueda Pásala: {e}")
+        log.exception(f"Error en la busqueda de Pasala: {url}")
+        return [], [], url
+
+
+def es_url_busqueda_pasala(url):
+    """Detecta si la URL es de búsqueda de Pásala"""
+    return "pasala.checkout.tuboleta.com/list/resaleProducts" in url
+
+
+def contar_localidades_disponibles(driver, url):
+    """
+    Cuenta las localidades disponibles en una URL
+    Filtra correctamente qué es una localidad real vs elementos de UI
+    """
+    try:
+        print(f"\n→ Navegando a: {url}")
+        navegar(driver, url)
+        time.sleep(3)
+
+        # Detectar tipo de URL
+        es_url_producto = "?productId=" in url and "&perfId=" not in url
+
+        if es_url_producto:
+            print("   ℹ️ URL de producto - Contando localidades")
+        else:
+            print("   ℹ️ URL de seat - Mostrando nombres")
+
+        # Buscar filas/elementos de localidades
+        filas = driver.find_elements(By.XPATH,
+                                     "//th[contains(@class, 'category')] | "
+                                     "//tr[contains(@class, 'row')] | "
+                                     "//div[contains(@class, 'row')]"
+                                     )
+
+        localidades_disponibles = []
+        localidades_agotadas = []
+
+        for fila in filas:
+            try:
+                texto_fila = fila.text.strip()
+
+                if not texto_fila:
+                    continue
+
+                # Obtener primera línea
+                primera_linea = texto_fila.split('\n')[0].strip()
+
+                # ✅ FILTRO CRÍTICO: Eliminar elementos que NO son localidades
+                palabras_prohibidas = [
+                    'localidad', 'preferencia', 'tarifa', 'cantidad de boletas',
+                    'seleccione un asiento', 'rangos de precios', 'precio',
+                    'compra tus tiquetes', 'inscribirse', 'disponibilidad',
+                    'total', 'subtotal', 'valor a pagar', 'cargo por servicio'
+                ]
+
+                # Verificar si es una palabra prohibida
+                es_prohibido = any(palabra in primera_linea.lower() for palabra in palabras_prohibidas)
+
+                if es_prohibido or not primera_linea or len(primera_linea) < 3:
+                    continue
+
+                # Verificar si está agotado
+                tiene_agotado = "Agotado" in texto_fila
+
+                clases = fila.get_attribute("class") or ""
+                if "disabled" in clases.lower():
+                    tiene_agotado = True
+
+                # Registrar
+                if tiene_agotado:
+                    localidades_agotadas.append(primera_linea)
+                else:
+                    localidades_disponibles.append(primera_linea)
+
+            except WebDriverException:
+                continue
+            except Exception:
+                log.exception("Error inesperado procesando una fila de localidad")
+                continue
+
+        # Eliminar duplicados
+        localidades_disponibles = list(dict.fromkeys(localidades_disponibles))
+        localidades_agotadas = list(dict.fromkeys(localidades_agotadas))
+
+        print(f"✓ Se encontraron {len(localidades_disponibles)} localidades disponibles")
+
+        # Mostrar solo si hay disponibles
+        if localidades_disponibles and not es_url_producto:
+            print(f"✓ Localidades DISPONIBLES:")
+            for idx, loc in enumerate(localidades_disponibles[:5], 1):  # Solo mostrar primeras 5
+                print(f"   {idx}. {loc}")
+            if len(localidades_disponibles) > 5:
+                print(f"   ... +{len(localidades_disponibles) - 5} más")
+
+        return localidades_disponibles, localidades_agotadas, url
+
+    except Exception as e:
+        print(f"✗ Error: {e}")
+        log.exception(f"Error en Tuboleta: {url}")
+        return [], [], url
+
+
+# ============================================================
+# DEDUPLICACION DE NOTIFICACIONES
+# ============================================================
+# Evita reenviar el mismo aviso en cada vuelta del bucle.
+# Se notifica una localidad cuando:
+#   1. Aparece por primera vez (transicion agotado -> disponible), o
+#   2. Sigue disponible y ya paso el intervalo de recordatorio.
+#
+# Anti-intermitencia: una lectura fallida o lenta puede devolver la pagina
+# vacia aunque la localidad siga ahi. Por eso una localidad no se da por
+# agotada hasta acumular varias lecturas consecutivas sin verla; si se
+# olvidara a la primera, reaparecer al ciclo siguiente generaria un aviso
+# nuevo y volveriamos al spam.
+
+ARCHIVO_ESTADO = os.path.join(os.path.dirname(os.path.abspath(__file__)), "estado_notificaciones.json")
+INTERVALO_RECORDATORIO = 600  # Segundos: reavisar si sigue disponible (10 min)
+LECTURAS_VACIAS_PARA_OLVIDAR = 3  # Lecturas seguidas sin verla antes de darla por agotada
+
+# Pausa heredada del codigo anterior a la deduplicacion. NO reducirla: marca el
+# ritmo de peticiones que lleva meses ejecutandose sin bloqueos por parte de las
+# boleteras. La deduplicacion cambia cuando se avisa, no cada cuanto se consulta.
+PAUSA_TRAS_DISPONIBILIDAD = 5  # Segundos
+
+# Reserva automatica en Ticketmaster. Solo las URLs listadas aqui reservan; el resto
+# solo avisa. La clave debe coincidir caracter por caracter con URLS_A_MONITOREAR.
+# El valor es el maximo de boletas a pedir (tope de la plataforma: 4), o un dict
+#     {"maximo": 4, "sectores": ["GRAMILLA", "norte"], "max_reservas": 8}
+# para reservar SOLO los sectores cuyo nombre contenga alguna de esas palabras.
+# "max_reservas" (1 por defecto) es cuantas localidades distintas reservar a la vez: cada
+# una queda en su propia pestana con su contador y usted decide cual pagar; las demas
+# vencen solas. Con menos sectores disponibles que max_reservas, reserva los que haya. Es
+# independiente de FILTROS_LOCALIDADES (que decide de que se AVISA; la reserva mira todos
+# los sectores disponibles, no solo los del filtro de avisos): asi se sigue
+# avisando de todo y se reserva solo lo que la reserva sabe hacer. Importante: el
+# bot maneja entrada general (se sube la cantidad con el "+") y numeradas (busca los
+# mejores asientos). EL ORDEN DE LAS PALABRAS ES LA PRIORIDAD: si aparecen varios sectores
+# a la vez se prueba primero el que casa con la primera palabra, y se reserva UNO por
+# deteccion (el primero que se consiga).
+# Cuando un sector que cumple aparece NUEVO, el bot abre otra pestana, reserva hasta
+# la pantalla de pago y avisa por Telegram: el pago lo hace siempre el usuario.
+# Vacio = el monitor se comporta como siempre (solo observa y notifica).
+#
+# Navegador donde se reserva: puerto de depuracion de un Comet APARTE del que vigila,
+# con su propio perfil y sesiones (se abre con iniciar_comet_debug.bat). Asi, relanzar
+# el del monitor nunca se lleva por delante una reserva retenida. None = se reserva en
+# una pestana nueva del propio Comet del monitor.
+RESERVA_PUERTO_DEPURACION = 9223
+
+RESERVAR_TICKETMASTER = {
+
+    # "https://www.ticketmaster.co/event/mejor-tarde-que-nunca-romeo-santos-prince-royce-venta-general":
+    #     {"maximo": 8, "sectores": ["102", "104", "106"], "max_reservas": 8},
+    #
+
+    # "https://www.ticketmaster.co/event/mana-2026-venta-general":
+    #     {"maximo": 4, "max_reservas": 8, "sectores": ["101", "platea c", "preferencial"]},
+
+    "https://www.ticketmaster.co/event/calvin-harris-venta-general":
+        {"maximo": 4, "max_reservas": 8},
+
+    # IRON MAIDEN: Back Field es de entrada general; "107" nombra la SECCION 107 del sector
+    # numerado "101 - 103 - 105 - 107" (el bot reserva esa seccion, no la primera libre).
+    # Independiente de FILTROS_LOCALIDADES: aqui se decide que RESERVAR, alli de que AVISAR.
+    # "https://www.ticketmaster.co/event/iron-maiden-venta-general":
+    #     {"maximo": 4, "sectores": ["back", "107", "front field sur", "111"]},
+
+}
+
+# Reserva en Eleventickets (reserva_eleventickets.py): cuando un bloque que cumple aparece
+# HABILITADO en el mapa por primera vez, se abre una pestana en el navegador de reserva, se
+# marca hasta "maximo" (bajando 4 -> 3 -> 2 -> 1 si dice agotado) y se pulsa "Anadir al
+# Carrito de Compras". Ahi se para: el pago lo hace el usuario desde el carrito.
+# "sectores" son palabras; su ORDEN es la prioridad. Independiente de FILTROS_LOCALIDADES.
+RESERVAR_ELEVENTICKETS = {
+    "https://sudamericana.eleventickets.com/#!/apresentacao/4bb1cb440b627393353ec181eb59a53056c9786c":
+    # Todo el estadio. El ORDEN es la prioridad: primero CAT1 Occidental (pedido el 30-oct,
+    # Oriental salia agotado), luego CAT2 Oriental y al final CAT3. Ojo: segun las preguntas
+    # frecuentes del evento, el sector Sur es solo para hinchas de Atletico Mineiro.
+        # reintentar_siempre: prueba en CADA ronda mientras haya un bloque habilitado que case, no
+        # solo cuando aparece nuevo (pedido para la venta del 30-oct-2026). Sube las peticiones.
+        # completar: no para hasta tener "maximo" entradas en total, aunque queden en sectores
+        # distintos, y sin el freno de 10 min tras un exito. Al llegar deja de intentar.
+        {"maximo": 4, "reintentar_siempre": True, "completar": True, "sectores": [
+            "CAT1 - Occidental Tribuna Alta", "CAT1 - Occidental Tribuna Media", "CAT1 - Occidental Tribuna Baja",
+            "CAT2 - Oriental Tribuna Alta", "CAT2 - Oriental Tribuna Media", "CAT2 - Oriental Tribuna Baja",
+            "CAT3 - Norte", "CAT3 - Sur"]}
+}
+
+# Un bloqueo persiste; avisar en cada ronda solo cambiaria un problema de
+# ruido por otro. Un aviso por sitio y por hora basta para enterarse.
+INTERVALO_AVISO_BLOQUEO = 3600  # Segundos
+
+TIEMPO_MAXIMO_SCRIPT = 20  # Segundos maximos para un execute_script
+
+# Espera maxima a que una pagina termine de cargar. Sin fijarlo rige el valor
+# por defecto del estandar WebDriver, 5 minutos: una sola pagina colgada dejaba
+# al bot ciego ese tiempo y retrasaba todas las demas URLs de la ronda. Una
+# carga normal tarda entre 4 y 6 segundos, asi que 30 deja margen de sobra.
+TIEMPO_MAXIMO_CARGA = 30  # Segundos
+
+# Espera entre intentos de reconexion cuando Comet no responde. Los intentos
+# son locales (127.0.0.1): no visitan ninguna boletera.
+ESPERA_RECONEXION = 30  # Segundos
+
+# Tiempo maximo esperando a que Comet abra su puerto de depuracion tras
+# arrancar. Normalmente tarda 2-5 segundos.
+ESPERA_ARRANQUE_CHROME = 20  # Segundos
+
+# Comet del monitor, con los mismos parametros que iniciar_comet_monitor.bat. Google Comet
+# no se usa: en el equipo de Aldemar lo detecta Bitdefender. No se reutiliza el 9222 del Comet
+# de antes: con uno de esos abierto, el monitor se engancharia a el sin que nadie lo notara.
+# El perfil se arma con os.path.join para no depender de barras invertidas.
+PUERTO_DEPURACION = 9224
+PERFIL_NAVEGADOR = os.path.join("C:" + os.sep, "selenium", "CometMonitorProfile")
+RUTAS_NAVEGADOR = [
+    os.path.join(os.environ.get("LOCALAPPDATA", ""), "Perplexity", "Comet", "Application", "comet.exe"),
+]
+
+# Como maximo un relanzamiento de Comet cada 5 minutos durante una caida.
+# Comet admite una sola instancia por perfil: si hay una abierta con el perfil
+# del monitor pero SIN el puerto de depuracion, cada relanzamiento solo abre otra
+# ventana en ella y el puerto nunca se activa. Sin este limite, el bot abriria
+# una ventana nueva cada ESPERA_RECONEXION segundos.
+INTERVALO_RELANZAMIENTO = 300  # Segundos
+
+# Por encima de este numero de secciones se asume que son asientos numerados
+# y no localidades, asi que no se detallan en pantalla.
+LIMITE_DETALLE_SECCIONES = 20
+
+# Marcador para avisos en los que se sabe que HAY venta abierta pero no se
+# pudo leer que localidades. Estos avisos se saltan el filtro de localidades:
+# un filtro compara nombres de localidad, y aqui no hay ninguno que comparar,
+# asi que el filtro los descartaria y el usuario se quedaria sin saber que la
+# venta abrio. Vale mas un aviso impreciso que ninguno.
+MARCADOR_SIN_DETALLE = "[SIN DETALLE]"
+
+# Frases de sala de espera / cola virtual. No son un bloqueo: significan que
+# la venta ESTA ABIERTA y hay tanta demanda que hay fila. Es justo el momento
+# en que el usuario necesita enterarse.
+SENALES_SALA_ESPERA = [
+    "sala de espera",
+    "waiting room",
+    "tu turno",
+    "your turn",
+    "en la fila",
+    "in line",
+    "queue",
+    "alta demanda",
+    "high demand",
+    "tiempo estimado de espera",
+]
+
+
+def _clave_estado(url, localidad):
+    """Identifica una localidad concreta dentro de una URL concreta"""
+    return f"{url}||{localidad}"
+
+
+def cargar_estado():
+    """Lee el registro de notificaciones previas. Si no existe o esta corrupto, arranca vacio"""
+    try:
+        with open(ARCHIVO_ESTADO, "r", encoding="utf-8") as f:
+            estado = json.load(f)
+        if isinstance(estado, dict):
+            print(f"✓ Estado cargado: {len(estado)} localidades ya notificadas")
+            return estado
+        print("⚠️ Archivo de estado con formato inesperado. Empezando de cero")
+    except FileNotFoundError:
+        print("ℹ️ Sin estado previo. Empezando de cero")
+    except (json.JSONDecodeError, OSError) as e:
+        print(f"⚠️ No se pudo leer el estado ({e}). Empezando de cero")
+    return {}
+
+
+def guardar_estado(estado):
+    """Escribe el registro en disco de forma atomica, para no corromperlo con un Ctrl+C"""
+    temporal = ARCHIVO_ESTADO + ".tmp"
+    try:
+        with open(temporal, "w", encoding="utf-8") as f:
+            json.dump(estado, f, ensure_ascii=False, indent=2)
+        os.replace(temporal, ARCHIVO_ESTADO)
+    except OSError as e:
+        print(f"⚠️ No se pudo guardar el estado: {e}")
+
+
+def localidades_a_notificar(estado, url, disponibles):
+    """
+    Decide de que localidades hay que avisar y actualiza el registro.
+
+    Devuelve (nuevas, recordatorios, ya_avisadas):
+      - nuevas: aparecen por primera vez
+      - recordatorios: siguen disponibles y toca reavisar
+      - ya_avisadas: disponibles pero en silencio (ya notificadas hace poco)
+    """
+    ahora = time.time()
+    nuevas = []
+    recordatorios = []
+    ya_avisadas = []
+
+    for localidad in disponibles:
+        clave = _clave_estado(url, localidad)
+        registro = estado.get(clave)
+
+        if registro is None:
+            estado[clave] = {"ultimo_aviso": ahora, "lecturas_vacias": 0}
+            nuevas.append(localidad)
+            continue
+
+        # Sigue disponible: se reinicia el contador de ausencias
+        registro["lecturas_vacias"] = 0
+
+        if ahora - registro.get("ultimo_aviso", 0) >= INTERVALO_RECORDATORIO:
+            registro["ultimo_aviso"] = ahora
+            recordatorios.append(localidad)
+        else:
+            ya_avisadas.append(localidad)
+
+    # Localidades que ya no aparecen: se olvidan tras varias lecturas vacias
+    disponibles_set = set(disponibles)
+    for clave in [k for k in estado if k.startswith(f"{url}||")]:
+        localidad = clave.split("||", 1)[1]
+        if localidad in disponibles_set:
+            continue
+        estado[clave]["lecturas_vacias"] = estado[clave].get("lecturas_vacias", 0) + 1
+        if estado[clave]["lecturas_vacias"] >= LECTURAS_VACIAS_PARA_OLVIDAR:
+            del estado[clave]
+
+    return nuevas, recordatorios, ya_avisadas
+
+
+def deshacer_avisos(estado, url, nuevas, recordatorios):
+    """
+    Revierte lo que localidades_a_notificar() registro para un aviso que no salio.
+
+    localidades_a_notificar() anota la hora del aviso al decidirlo, antes de
+    enviarlo. Si luego Telegram falla, la localidad quedaba marcada como avisada
+    y no se volvia a intentar hasta el recordatorio, 10 minutos despues: 10
+    minutos sin saber de una boleta. Al deshacer, se reintenta en la ronda
+    siguiente.
+
+    - Las nuevas se olvidan: en la ronda siguiente vuelven a ser nuevas.
+    - Los recordatorios quedan con la hora a cero: en la ronda siguiente vuelve a
+      tocarles recordatorio, conservando su contador de lecturas vacias.
+
+    Solo afecta a los mensajes de Telegram; no anade ninguna visita a las
+    boleteras.
+    """
+    for localidad in nuevas:
+        estado.pop(_clave_estado(url, localidad), None)
+    for localidad in recordatorios:
+        registro = estado.get(_clave_estado(url, localidad))
+        if registro is not None:
+            registro["ultimo_aviso"] = 0
+
+
+_ULTIMA_RESERVA = {}  # url -> hora de la ultima reserva (modo de una sola reserva)
+# Sufijo con el que la reserva guarda SU estado de sectores vistos en estado_notificaciones.json,
+# separado del de los avisos para que los dos filtros no se pisen.
+CLAVE_RESERVA = "@reserva"
+_RESERVADOS = {}  # (url, sector, seccion) -> hora de su ultima reserva (modo de varias reservas)
+# Tope de tiempo para TODAS las reservas de una deteccion: el monitor no revisa nada mas
+# mientras reserva, y cada reserva retiene las boletas solo unos 5 minutos.
+TIEMPO_MAXIMO_RESERVAS = 300  # Segundos
+_NAVEGADOR_RESERVA = []  # driver ya conectado al navegador de reserva (0 o 1)
+
+
+def _chromedriver_para(version):
+    """
+    Ruta de un chromedriver de la misma version mayor que `version` ("153.0.x.y"),
+    buscado en la cache de Selenium Manager, o None si no hay.
+
+    Hace falta porque Selenium elige el driver por el navegador instalado por
+    defecto y Comet lleva su propio Chromium: el driver equivocado no se engancha.
+    """
+    mayor = str(version).split(".")[0]
+    cache = os.path.join(os.path.expanduser("~"), ".cache", "selenium", "chromedriver")
+    candidatos = sorted(glob.glob(os.path.join(cache, "*", f"{mayor}.*", "chromedriver*")))
+    return candidatos[-1] if candidatos else None
+
+
+def _descargar_chromedriver(version):
+    """
+    Pide a Selenium Manager el chromedriver de esa version mayor, o None si no se pudo.
+    Comet se actualiza solo: sin esto, tras una actualizacion el monitor quedaria ciego.
+    No visita ninguna boletera.
+    """
+    try:
+        gestor = SeleniumManager()
+        ruta = gestor.run([str(gestor.get_binary()), "--driver", "chromedriver", "--browser-version",
+                           str(version).split(".")[0]]).get("driver_path")
+        log.warning(f"Descargado chromedriver para Comet {version}: {ruta}")
+        return ruta
+    except Exception as e:
+        log.error(f"No se pudo descargar chromedriver para Comet {version}: {e}")
+        return None
+
+
+def _driver_en_puerto(puerto):
+    """Engancha Selenium al navegador de ese puerto, con el driver de su version. Devuelve (driver, ruta)."""
+    with urllib.request.urlopen(f"http://127.0.0.1:{puerto}/json/version", timeout=3) as r:
+        version = json.load(r).get("Browser", "").split("/")[-1]
+    ruta = _chromedriver_para(version) or _descargar_chromedriver(version)
+    opciones = Options()
+    opciones.add_experimental_option("debuggerAddress", f"127.0.0.1:{puerto}")
+    servicio = Service(executable_path=ruta) if ruta else Service()
+    driver = webdriver.Chrome(service=servicio, options=opciones)
+    # Ningun execute_script puede bloquear el bucle indefinidamente:
+    # si tarda mas de la cuenta, Selenium lanza TimeoutException.
+    driver.set_script_timeout(TIEMPO_MAXIMO_SCRIPT)
+    driver.set_page_load_timeout(TIEMPO_MAXIMO_CARGA)
+    return driver, ruta
+
+
+def navegador_reserva(driver_monitor):
+    """
+    Devuelve (driver, motivo_de_fallo) del navegador donde se reserva.
+
+    Con RESERVA_PUERTO_DEPURACION se usa un navegador aparte (Comet con el perfil
+    de reserva, ver iniciar_comet_debug.bat); sin el, el propio navegador del
+    monitor. El motivo de fallo es texto para el aviso de Telegram.
+    """
+    puerto = RESERVA_PUERTO_DEPURACION
+    if not puerto:
+        return driver_monitor, None
+
+    # Se mira el puerto antes que nada: contra un navegador cerrado, chromedriver
+    # tarda un minuto en rendirse (medido).
+    if not puerto_depuracion_activo(puerto):
+        return None, (f"el navegador de reserva no responde en el puerto {puerto}; "
+                      "abre iniciar_comet_debug.bat")
+    if _NAVEGADOR_RESERVA:
+        viva = _NAVEGADOR_RESERVA[0]
+        try:
+            viva.current_window_handle
+            return viva, None
+        except Exception:
+            soltar_sesion(viva)
+            _NAVEGADOR_RESERVA.clear()
+
+    try:
+        nuevo, ruta = _driver_en_puerto(puerto)
+    except Exception as e:
+        log.exception("RESERVA: no se pudo conectar al navegador de reserva")
+        return None, f"no pude conectar al navegador de reserva ({type(e).__name__}); ¿versión de chromedriver?"
+    _NAVEGADOR_RESERVA.append(nuevo)
+    log.info(f"RESERVA: conectado al navegador de reserva (puerto {puerto}, driver {ruta or 'automatico'})")
+    return nuevo, None
+
+
+def _reserva_en_pestana(navegador, url, sectores, maximo, palabras, excluir=()):
+    """
+    Una reserva en una pestana nueva del navegador de reserva; devuelve la Reserva.
+
+    La pestana del monitor no se toca. Si se llego al pago, quedaron boletas retenidas o
+    el navegador esta en una fila de Queue-it, la pestana nueva se deja abierta para que
+    el usuario termine (cerrarla perderia la reserva o el puesto en la fila); si fallo
+    limpio, se cierra. Nunca lanza.
+    """
+    original = navegador.current_window_handle
+    cerrar = False
+    try:
+        navegador.switch_to.new_window("tab")
+        pagina = reserva_ticketmaster.PaginaSelenium(navegador, url, navegar)
+        pagina.claves_seccion = palabras or []
+        pagina.excluir_secciones = set(excluir)
+        reserva = reserva_ticketmaster.reservar(pagina, sectores, maximo=maximo)
+        cerrar = not reserva.ok and not reserva.retenidas and not reserva.conservar_pestana
+    except Exception as e:
+        log.exception(f"RESERVA: error inesperado | {url}")
+        reserva = reserva_ticketmaster.Reserva(False, sectores[0], detalle=f"error inesperado: {e}", retenidas=True)
+    finally:
+        try:
+            if cerrar:
+                navegador.close()
+            navegador.switch_to.window(original)
+        except WebDriverException:
+            log.exception("RESERVA: no se pudo volver a la pestaña original")
+    return reserva
+
+
+def _avisar_reserva(reserva, nombre_evento, url):
+    resultado = "OK" if reserva.ok else "FALLO"
+    log.warning(f"RESERVA {resultado}: {reserva} | {url}")
+    print(f"   🎟️ Reserva {resultado}: {reserva.detalle or str(reserva.cantidad) + ' boleta(s)'}")
+    enviar_notificacion(reserva_ticketmaster.mensaje(reserva, nombre_evento, url, time.strftime('%H:%M:%S')))
+
+
+MAX_INTENTOS_POR_SECTOR = 12  # Tope de pestañas por sector numerado (cota de seguridad)
+
+
+def _reservar_varias(navegador, url, sectores, maximo, max_reservas, palabras, nombre_evento):
+    """
+    Una reserva por localidad, y por SECCION dentro de cada sector numerado, cada una en
+    su pestana, hasta max_reservas.
+
+    Ticketmaster deja tener varias reservas vivas a la vez en la misma cuenta (verificado a
+    mano con 3 pestanas): el usuario decide despues cual pagar y las demas vencen solas.
+    Un sector numerado ("117 - 119 - 121 - 123") agrupa varias secciones libres; cada una
+    cuenta como una reserva distinta, no solo la primera. Se sigue el orden de prioridad
+    de `sectores`; las que fallan no cuentan y se pasa a la siguiente; si hay menos que
+    max_reservas, se reservan las que haya.
+    """
+    limite = time.time() + TIEMPO_MAXIMO_RESERVAS
+    resultados = []
+    exitos = 0
+    for sector in sectores:
+        # Secciones de este sector ya reservadas hace poco (p. ej. si el aviso de Telegram
+        # fallo y el sector vuelve a contarse como nuevo): no se repiten, las demas si.
+        excluidas = {sec for (u, sec_sector, sec), hora in _RESERVADOS.items()
+                     if u == url and sec_sector == sector and time.time() - hora < INTERVALO_RECORDATORIO}
+        if "" in excluidas:
+            # Localidad sin secciones (entrada general) reservada hace poco: no se repite.
+            print(f"   🎟️ {sector}: ya reservada hace poco; no se repite")
+            continue
+        intentos_sector = 0
+        while exitos < max_reservas and intentos_sector < MAX_INTENTOS_POR_SECTOR:
+            if time.time() > limite:
+                log.warning(f"RESERVA: se acabo el tiempo ({TIEMPO_MAXIMO_RESERVAS}s) con {exitos} reserva(s) | {url}")
+                break
+            intentos_sector += 1
+            print(f"   🎟️ Reservando {maximo} boleta(s) de {sector} ({exitos + 1}/{max_reservas})...")
+            log.warning(f"RESERVA: intentando [{sector}] (max {maximo}, {exitos}/{max_reservas} listas, "
+                        f"secciones ya hechas {sorted(excluidas)}) | {url}")
+            reserva = _reserva_en_pestana(navegador, url, [sector], maximo, palabras, excluidas)
+
+            if reserva.sin_mas_secciones and not reserva.ok:
+                # Ya no quedaba ninguna seccion por reservar en este sector: no es un fallo,
+                # pero se deja constancia de lo que mostraba la pagina (p. ej. una seccion
+                # momentaneamente no disponible) para poder explicar por que se paro.
+                log.info(f"RESERVA: sin mas secciones en [{sector}]; la pagina mostraba "
+                         f"{reserva.secciones_vistas}, ya hechas {sorted(excluidas)} | {url}")
+                break
+            clave = reserva_ticketmaster._normalizar(reserva.seccion)
+            if reserva.ok or reserva.retenidas:
+                _RESERVADOS[(url, sector, clave)] = time.time()
+            exitos += 1 if reserva.ok else 0
+            resultados.append(reserva)
+            _avisar_reserva(reserva, nombre_evento, url)
+            if not reserva.seccion:
+                break  # sector sin secciones (entrada general), o fallo antes de elegir: una vez
+            excluidas.add(clave)  # esa seccion ya se intento: la siguiente pestana toma otra
+
+    if len(resultados) > 1:
+        enviar_notificacion(reserva_ticketmaster.mensaje_resumen(
+            resultados, nombre_evento, url, time.strftime('%H:%M:%S')))
+    return resultados
+
+
+def intentar_reserva(driver, url, sectores, nombre_evento):
+    """
+    Reserva y avisa por Telegram del resultado. Nunca lanza: un fallo de la reserva no
+    puede tumbar el bucle de monitoreo.
+
+    Configuracion en RESERVAR_TICKETMASTER: un numero (maximo de boletas) o un dict con
+    "maximo", "sectores" (palabras; su ORDEN es la prioridad) y "max_reservas".
+      - max_reservas = 1 (por defecto): UNA reserva, en una pestana; prueba los sectores
+        por prioridad y se queda con el primero que consigue.
+      - max_reservas > 1: una reserva por localidad, cada una en su pestana.
+    Devuelve la lista de reservas intentadas, o None si no habia nada que reservar.
+    """
+    config = RESERVAR_TICKETMASTER.get(url)
+    maximo = config.get("maximo", 4) if isinstance(config, dict) else config
+    palabras = config.get("sectores") if isinstance(config, dict) else None
+    max_reservas = config.get("max_reservas", 1) if isinstance(config, dict) else 1
+    sectores = [s for s in sectores if MARCADOR_SIN_DETALLE not in s]
+    if palabras:
+        claves = [normalizar_nombre(p) for p in palabras if normalizar_nombre(p)]
+        todos = sectores
+
+        def prioridad(sector):
+            """Posicion de la primera palabra que lo nombra: la primera de la lista manda."""
+            nombre = normalizar_nombre(sector)
+            return next((i for i, c in enumerate(claves) if c in nombre), len(claves))
+
+        # sorted es estable: a igual prioridad se conserva el orden del catalogo.
+        sectores = sorted((s for s in sectores if prioridad(s) < len(claves)), key=prioridad)
+        if todos and not sectores:
+            log.info(f"RESERVA: ningun sector nuevo coincide con {palabras}: {todos} | {url}")
+    if not maximo or not sectores:
+        return None
+
+    if max_reservas <= 1:
+        # Si el aviso de Telegram fallo, el sector vuelve a ser "nuevo" en la ronda
+        # siguiente: sin este freno se reservaria dos veces lo mismo. Solo cuenta si
+        # hubo reserva (o boletas retenidas); un fallo limpio puede reintentarse.
+        if time.time() - _ULTIMA_RESERVA.get(url, 0) < INTERVALO_RECORDATORIO:
+            print("   🎟️ Ya se reservo hace poco en este evento; no se repite")
+            return None
+
+    log.warning(f"RESERVA: intentando {sectores} (max {maximo}, hasta {max_reservas} reserva(s)) | {url}")
+    navegador, motivo = navegador_reserva(driver)
+    if navegador is None:
+        reserva = reserva_ticketmaster.Reserva(False, sectores[0], detalle=motivo)
+        log.warning(f"RESERVA FALLO: {motivo} | {url}")
+        enviar_notificacion(reserva_ticketmaster.mensaje(reserva, nombre_evento, url, time.strftime('%H:%M:%S')))
+        return [reserva]
+
+    if max_reservas > 1:
+        return _reservar_varias(navegador, url, sectores, maximo, max_reservas, palabras, nombre_evento)
+
+    print(f"   🎟️ Reservando {maximo} boleta(s) en una pestaña nueva...")
+    reserva = _reserva_en_pestana(navegador, url, sectores, maximo, palabras)
+    if reserva.ok or reserva.retenidas:
+        _ULTIMA_RESERVA[url] = time.time()
+    _avisar_reserva(reserva, nombre_evento, url)
+    return [reserva]
+
+
+def _config_eleventickets(url):
+    """Configuracion de la URL; un enlace nuevo del mismo sitio (hallado en la home) usa la primera."""
+    if url in RESERVAR_ELEVENTICKETS:
+        return RESERVAR_ELEVENTICKETS[url]
+    if es_url_eleventickets(url) and RESERVAR_ELEVENTICKETS:
+        return next(iter(RESERVAR_ELEVENTICKETS.values()))
+    return {}
+
+
+def intentar_reserva_eleventickets(driver, url, bloques_nuevos, nombre_evento):
+    """
+    Anade al carrito en Eleventickets y avisa por Telegram. Nunca lanza.
+
+    Se dispara si algun bloque recien habilitado casa con RESERVAR_ELEVENTICKETS[url]
+    ["sectores"]; entonces se prueban TODOS los bloques habilitados que casan, por prioridad
+    (uno viejo tambien puede tener cupo). Una pestana nueva en el navegador de reserva: si
+    algo entro al carrito se deja abierta; si no, se cierra. Devuelve la Reserva o None.
+    """
+    config = _config_eleventickets(url)
+    maximo = config.get("maximo", reserva_eleventickets.MAXIMO_POR_COMPRADOR)
+    palabras = config.get("sectores") or []
+    claves = [normalizar_nombre(p) for p in palabras if normalizar_nombre(p)]
+    casan = [b for b in bloques_nuevos if any(c in normalizar_nombre(b) for c in claves)]
+    if not casan:
+        if bloques_nuevos:
+            log.info(f"RESERVA: ningun bloque nuevo coincide con {palabras}: {bloques_nuevos[:10]} | {url}")
+        return None
+    if config.get("completar"):
+        if _ENTRADAS_CONSEGUIDAS.get(url, 0) >= maximo:
+            print(f"   🎟️ Ya hay {maximo} entradas conseguidas; no se intenta más")
+            return None
+    # Mismo freno que en Ticketmaster: si el aviso fallo, el bloque vuelve a ser "nuevo".
+    elif time.time() - _ULTIMA_RESERVA.get(url, 0) < INTERVALO_RECORDATORIO:
+        print("   🎟️ Ya se añadio al carrito hace poco en este evento; no se repite")
+        return None
+
+    if url in _PESTANA_VERIFICACION:
+        # Ya hay una pestana esperando a que el usuario pase Cloudflare: otra nueva caeria en
+        # la misma verificacion. La reserva sale de reintentar_tras_verificacion().
+        print("   🎟️ Hay una pestaña esperando la verificación de Cloudflare; se reserva ahí al pasarla")
+        return None
+
+    log.warning(f"RESERVA Eleventickets: bloques nuevos {casan[:10]}; intentando {palabras} (max {maximo}) | {url}")
+    navegador, motivo = navegador_reserva(driver)
+    if navegador is None:
+        reserva = reserva_eleventickets.Reserva(False, pedidas=maximo, detalle=motivo)
+    else:
+        print(f"   🎟️ Añadiendo al carrito hasta {maximo} entrada(s) en una pestaña nueva...")
+        reserva = _carrito_en_pestana(navegador, url, palabras, maximo)
+    return _avisar_carrito(reserva, nombre_evento, url)
+
+
+# url -> pestana del navegador de reserva que se quedo en la verificacion de Cloudflare
+_PESTANA_VERIFICACION = {}
+_ULTIMO_FALLO_AVISADO = {}  # url -> hora del ultimo Telegram de fallo (modo reintentar_siempre)
+# url -> entradas conseguidas en esta ejecucion (modo completar). Va en memoria y no se descuenta
+# si una reserva vence: una entrada ya pagada no sale del carrito como reservada y, contando solo
+# con el carrito, el bot compraria otras 4.
+_ENTRADAS_CONSEGUIDAS = {}
+
+
+def _carrito_en_pestana(navegador, url, palabras, maximo, pestana=None):
+    """
+    Corre reservar() en una pestana nueva o, con `pestana`, en esa (sin recargarla). Si se
+    queda en la verificacion de Cloudflare, la pestana se apunta en _PESTANA_VERIFICACION;
+    si no entro nada al carrito, se cierra. Nunca lanza.
+    """
+    original = navegador.current_window_handle
+    cerrar = False
+    try:
+        if pestana:
+            navegador.switch_to.window(pestana)
+        else:
+            navegador.switch_to.new_window("tab")
+        pagina = reserva_eleventickets.PaginaSelenium(navegador, url, navegar, ya_cargada=bool(pestana))
+        if _config_eleventickets(url).get("completar"):
+            reserva = reserva_eleventickets.reservar(pagina, palabras, tope=maximo,
+                                                     maximo=maximo - _ENTRADAS_CONSEGUIDAS.get(url, 0))
+        else:
+            reserva = reserva_eleventickets.reservar(pagina, palabras, maximo=maximo)
+        if reserva.conservar_pestana:
+            _PESTANA_VERIFICACION[url] = navegador.current_window_handle
+        cerrar = not reserva.ok and not reserva.conservar_pestana
+    except Exception as e:
+        log.exception(f"RESERVA Eleventickets: error inesperado | {url}")
+        reserva = reserva_eleventickets.Reserva(False, pedidas=maximo, detalle=f"error inesperado: {e}")
+    finally:
+        try:
+            if cerrar:
+                navegador.close()
+            navegador.switch_to.window(original)
+        except WebDriverException:
+            log.exception("RESERVA: no se pudo volver a la pestaña original")
+    return reserva
+
+
+def _avisar_carrito(reserva, nombre_evento, url):
+    if reserva.ok:
+        _ULTIMA_RESERVA[url] = time.time()
+    config = _config_eleventickets(url)
+    if config.get("completar"):
+        tope = config.get("maximo", reserva_eleventickets.MAXIMO_POR_COMPRADOR)
+        if reserva.completo:
+            _ENTRADAS_CONSEGUIDAS[url] = tope
+        elif reserva.ok:
+            _ENTRADAS_CONSEGUIDAS[url] = _ENTRADAS_CONSEGUIDAS.get(url, 0) + reserva.cantidad
+    resultado = "OK" if reserva.ok else "FALLO"
+    log.warning(f"RESERVA Eleventickets {resultado}: {reserva} | {url}")
+    print(f"   🎟️ Carrito {resultado}: {reserva.detalle or str(reserva.cantidad) + ' entrada(s)'}")
+    # Reintentando en cada ronda, un Telegram por fallo seria uno cada pocos segundos. El exito y la
+    # verificacion de Cloudflare (hay que actuar) salen siempre; los fallos, como mucho cada 10 min.
+    reintenta = _config_eleventickets(url).get("reintentar_siempre")
+    if (reserva.ok or reserva.conservar_pestana or reserva.completo or not reintenta
+            or time.time() - _ULTIMO_FALLO_AVISADO.get(url, 0) >= INTERVALO_RECORDATORIO):
+        if not reserva.ok:
+            _ULTIMO_FALLO_AVISADO[url] = time.time()
+        texto = reserva_eleventickets.mensaje(reserva, nombre_evento, url, time.strftime('%H:%M:%S'))
+        if config.get("completar") and reserva.ok:
+            llevas = _ENTRADAS_CONSEGUIDAS.get(url, 0)
+            texto += (f"\n\n✅ Llevas {llevas} de {tope}: ya no se intenta más." if llevas >= tope
+                      else f"\n\n⏳ Llevas {llevas} de {tope}: sigo intentando las que faltan.")
+        enviar_notificacion(texto)
+    return reserva
+
+
+def reintentar_tras_verificacion(driver, url, nombre_evento):
+    """
+    Segundo intento cuando el primero se quedo en la verificacion de Cloudflare.
+
+    Una vez por ronda se MIRA la pestana que quedo abierta (solo JavaScript, sin recargar ni
+    pedir nada a Eleventickets). Mientras siga en la verificacion no se hace nada: se espera
+    al usuario, que ya tiene el Telegram del fallo. En cuanto la pagina muestra el mapa, se
+    reserva ahi mismo, sin recargar. Devuelve la Reserva, o None si no tocaba.
+    """
+    pestana = _PESTANA_VERIFICACION.get(url)
+    if not pestana:
+        return None
+    navegador, _ = navegador_reserva(driver)
+    if navegador is None:
+        return None
+    try:
+        if pestana not in navegador.window_handles:
+            _PESTANA_VERIFICACION.pop(url, None)  # el usuario la cerro
+            log.info(f"RESERVA Eleventickets: la pestaña de la verificacion ya no existe | {url}")
+            return None
+        original = navegador.current_window_handle
+        navegador.switch_to.window(pestana)
+        try:
+            listo = navegador.execute_script(reserva_eleventickets.JS_ESTADO)
+        finally:
+            navegador.switch_to.window(original)
+    except WebDriverException:
+        log.exception(f"RESERVA Eleventickets: no se pudo mirar la pestaña de la verificacion | {url}")
+        return None
+    if not listo:
+        print("   🎟️ La pestaña de reserva sigue en la verificación de Cloudflare; esperando a que la pases")
+        return None
+
+    _PESTANA_VERIFICACION.pop(url, None)
+    config = _config_eleventickets(url)
+    maximo = config.get("maximo", reserva_eleventickets.MAXIMO_POR_COMPRADOR)
+    palabras = config.get("sectores") or []
+    log.warning(f"RESERVA Eleventickets: verificacion pasada, reintentando {palabras} (max {maximo}) | {url}")
+    print(f"   🎟️ Verificación pasada: añadiendo al carrito en esa pestaña...")
+    reserva = _carrito_en_pestana(navegador, url, palabras, maximo, pestana=pestana)
+    return _avisar_carrito(reserva, nombre_evento, url)
+
+
+def monitorear_urls(driver):
+    """Monitorea todas las URLs en busca de disponibilidad"""
+
+    print("\n" + "=" * 70)
+    print("MONITOR DE DISPONIBILIDAD - TUBOLETA")
+    print("=" * 70)
+    print(f"Total de URLs a monitorear: {len(URLS_A_MONITOREAR)}")
+    print(f"Recordatorio si sigue disponible: cada {INTERVALO_RECORDATORIO // 60} minutos")
+
+    estado = cargar_estado()
+    estado_bloqueo = {}
+
+    intentos = 0
+    max_intentos = 10000000
+
+    while intentos < max_intentos:
+        try:
+            intentos += 1
+            print(f"\n{'=' * 70}")
+            print(f"[Intento {intentos}/{max_intentos}] - {time.strftime('%H:%M:%S')}")
+            print("=" * 70)
+            log.info(f"Ronda {intentos} - {len(URLS_A_MONITOREAR)} URLs")
+
+            # Revisar cada URL
+            for idx, url in enumerate(URLS_A_MONITOREAR, 1):
+                print(f"\n[URL {idx}/{len(URLS_A_MONITOREAR)}]")
+
+                # Antes de visitar, se comprueba que Comet sigue ahi. Si no, se
+                # recupera la sesion y se continua con esta misma URL, que aun no
+                # se habia visitado: no es un reintento.
+                if not sesion_viva(driver):
+                    driver = recuperar_sesion(driver)
+                # Cada URL va aislada: si una falla, se registra y se sigue con la
+                # siguiente. Antes un solo try envolvia la ronda entera, y un error
+                # en la URL 5 saltaba todas las posteriores y reiniciaba desde la 1;
+                # si se repetia, las URLs de detras no se revisaban nunca.
+                try:
+
+                    disponibles = []
+                    agotadas = []
+                    url_final = url
+                    tipo = ""
+
+                    # Detectar tipo de URL y obtener disponibilidad
+                    if es_url_busqueda_pasala(url):
+                        disponibles, agotadas, url_final = buscar_disponibilidad_pasala(driver, url)
+                        tipo = 'Pásala Búsqueda'
+                    elif es_url_pasala(url):
+                        disponibles, agotadas, url_final = contar_articulos_pasala(driver, url)
+                        tipo = 'Pásala'
+                    elif es_url_taquillalive_book(url):
+                        disponibles, agotadas, url_final = verificar_disponibilidad_taquillalive_book(driver, url)
+                        tipo = 'TaquillalLive (Book)'
+                    elif es_url_taquillalive_performance_details(url):
+                        disponibles, agotadas, url_final = verificar_disponibilidad_taquillalive_details(driver, url)
+                        tipo = 'TaquillalLive (Details)'
+                    elif es_url_ticketmaster(url):
+                        disponibles, agotadas, url_final = verificar_disponibilidad_ticketmaster(driver, url)
+                        tipo = 'Ticketmaster'
+                    elif es_url_eleventickets(url):
+                        disponibles, agotadas, url_final = verificar_disponibilidad_eleventickets(driver, url)
+                        tipo = 'Eleventickets'
+                    elif es_url_tbpgpal(url):
+                        disponibles, agotadas, url_final = contar_localidades_disponibles(driver, url)
+                        tipo = 'TbpGpal'
+                    else:
+                        disponibles, agotadas, url_final = contar_localidades_disponibles(driver, url)
+                        tipo = 'Tuboleta'
+
+                    # ✅ NUEVO: Aplicar filtro de localidades
+                    disponibles_filtrados = filtrar_localidades(disponibles, url_final)
+
+                    # Una linea por URL y ronda. "LECTURA VACIA" (ni disponibles ni
+                    # agotadas) es lo que hay que vigilar: puede ser un evento sin
+                    # nada que mostrar, pero si una URL lo repite ronda tras ronda,
+                    # lo normal es que se haya roto su lectura.
+                    vacia = " | LECTURA VACIA" if not disponibles and not agotadas else ""
+                    log.info(
+                        f"{tipo} | disp={len(disponibles)} agot={len(agotadas)} "
+                        f"filtradas={len(disponibles_filtrados)}{vacia} | {url_final}"
+                    )
+
+                    # Mostrar info del filtrado
+                    if url_final in FILTROS_LOCALIDADES and FILTROS_LOCALIDADES[url_final]:
+                        filtro_info = ", ".join(FILTROS_LOCALIDADES[url_final])
+                        print(f"   📌 Filtro activo: {filtro_info}")
+                        print(f"   ✓ Disponibles totales: {len(disponibles)}")
+                        print(f"   ✓ Disponibles filtrados: {len(disponibles_filtrados)}")
+
+                    # Un desafio anti-bot se lee como 'no hay nada'. Sin este aviso,
+                    # el monitor quedaria ciego sin que nadie se entere.
+                    if not disponibles and not agotadas:
+                        bloqueado, motivo = detectar_bloqueo(driver)
+                        if bloqueado:
+                            print(f"   BLOQUEO detectado en {url_final}: {motivo}")
+                            log.warning(f"BLOQUEO anti-bot ({motivo}) | {url_final}")
+                            avisar_bloqueo(estado_bloqueo, url_final, motivo)
+
+                    # ✅ Deduplicación: avisar solo de lo nuevo o de lo que toca recordar
+                    nuevas, recordatorios, ya_avisadas = localidades_a_notificar(
+                        estado, url_final, disponibles_filtrados
+                    )
+                    a_notificar = nuevas + recordatorios
+
+                    if ya_avisadas and not a_notificar:
+                        print(f"   🔕 {len(ya_avisadas)} disponibles, ya notificadas (en silencio)")
+
+                    if a_notificar:
+                        print()
+                        print("=" * 70)
+                        if nuevas:
+                            print("🎉 ¡DISPONIBILIDAD DETECTADA (COINCIDE CON FILTRO)!")
+                        else:
+                            print("🔔 RECORDATORIO: SIGUE DISPONIBLE")
+                        print("=" * 70)
+
+                        # Obtener nombre del evento y fecha
+                        nombre_evento = obtener_nombre_evento(driver)
+                        if nombre_evento == "Evento":
+                            # El DOM no dio nada usable (pasa en TaquillaLive
+                            # book-performance, que se repinta solo). Se
+                            # intenta con el artista de la URL antes de
+                            # resignarse al literal "Evento" sin contexto.
+                            nombre_desde_url = nombre_evento_desde_artist_url(url_final)
+                            if nombre_desde_url:
+                                nombre_evento = nombre_desde_url
+                        fecha_evento = obtener_fecha_evento(driver)
+
+                        print(f"   Evento: {nombre_evento}")
+                        if fecha_evento:
+                            print(f"   Fecha: {fecha_evento}")
+
+                        # Construir mensaje
+                        if nuevas:
+                            mensaje = f"🎉 ¡DISPONIBILIDAD DETECTADA!\n\n"
+                        else:
+                            mensaje = f"🔔 SIGUE DISPONIBLE (recordatorio)\n\n"
+
+                        mensaje += f"📌 {nombre_evento}\n"
+
+                        if fecha_evento:
+                            mensaje += f"📅 {fecha_evento}\n"
+
+                        mensaje += f"\n"
+
+                        # Las tres ramas anteriores generaban el mismo texto; se unifican.
+                        etiqueta = 'TUBOLETA' if tipo == 'Tuboleta' else tipo.upper()
+                        mensaje += f"📍 {etiqueta} - {len(a_notificar)} disponibles\n"
+                        for loc in a_notificar[:5]:
+                            mensaje += f"  • {loc}\n"
+                        if len(a_notificar) > 5:
+                            mensaje += f"  ... +{len(a_notificar) - 5} más\n"
+                        if ya_avisadas:
+                            mensaje += f"  (+{len(ya_avisadas)} ya avisadas antes)\n"
+                        mensaje += f"  🔗 {url_final}\n\n"
+
+                        mensaje += f"⏰ {time.strftime('%H:%M:%S')}"
+
+                        print()
+                        print(f"📱 Enviando Telegram...")
+                        print(f"   Localidades en el aviso: {len(a_notificar)}")
+                        enviado = enviar_notificacion(mensaje)
+
+                        # Si no salio, se deshace el registro para reintentarlo en la
+                        # ronda siguiente en vez de esperar al recordatorio de 10 min.
+                        if not enviado:
+                            deshacer_avisos(estado, url_final, nuevas, recordatorios)
+
+                        # Persistir tras avisar: si el script muere ahora, al reiniciar
+                        # no repite los avisos ya enviados (ni da por enviados los fallidos).
+                        guardar_estado(estado)
+                        print()
+                        if enviado:
+                            print("✅ Notificación enviada. Continuando monitoreo...")
+                            log.info(
+                                f"AVISO enviado | nuevas={nuevas} recordatorios={recordatorios} | {url_final}"
+                            )
+                        else:
+                            print("✗ El aviso NO se pudo enviar por Telegram; se reintentará en la próxima ronda")
+                            log.error(
+                                f"AVISO NO ENVIADO, se reintentara | nuevas={nuevas} "
+                                f"recordatorios={recordatorios} | {url_final}"
+                            )
+
+                    elif disponibles and url_final in FILTROS_LOCALIDADES:
+                        # Hay disponibles pero no coinciden con el filtro
+                        print(f"   ℹ️ Disponibles detectados pero NO coinciden con filtro")
+
+                    # Reserva (Ticketmaster, solo URLs de RESERVAR_TICKETMASTER). Es INDEPENDIENTE
+                    # de FILTROS_LOCALIDADES: decide sobre TODOS los disponibles, no solo los que
+                    # pasan el filtro de avisos (que puede ser otro), y lleva su propia
+                    # deduplicacion para actuar solo ante sectores nuevos. Va DESPUES del aviso
+                    # (sale en ~1 s); un recordatorio o un sector ya visto no vuelve a reservar.
+                    if url_final in RESERVAR_TICKETMASTER and es_url_ticketmaster(url_final):
+                        candidatos = [d for d in disponibles if MARCADOR_SIN_DETALLE not in d]
+                        nuevas_reserva, _, _ = localidades_a_notificar(
+                            estado, url_final + CLAVE_RESERVA, candidatos)
+                        if nuevas_reserva:
+                            intentar_reserva(driver, url_final, nuevas_reserva, obtener_nombre_evento(driver))
+
+                    # Lo mismo para Eleventickets: solo ante bloques recien habilitados. Un bloque
+                    # que sigue habilitado no se reintenta en cada ronda (seria una peticion de
+                    # reserva por ronda); vuelve a contar si se deshabilita y se rehabilita.
+                    if es_url_eleventickets(url_final) and _config_eleventickets(url_final):
+                        reintentar_tras_verificacion(driver, url_final, obtener_nombre_evento(driver))
+                        candidatos = [d for d in disponibles if MARCADOR_SIN_DETALLE not in d]
+                        nuevas_reserva, _, _ = localidades_a_notificar(
+                            estado, url_final + CLAVE_RESERVA, candidatos)
+                        if _config_eleventickets(url_final).get("reintentar_siempre"):
+                            nuevas_reserva = candidatos
+                        if nuevas_reserva:
+                            intentar_reserva_eleventickets(driver, url_final, nuevas_reserva,
+                                                           obtener_nombre_evento(driver))
+
+                    # Antes esta pausa ocurria tras cada notificacion. Con la
+                    # deduplicacion se avisa mucho menos, asi que se ata a la
+                    # disponibilidad y no al aviso: el bucle mantiene exactamente
+                    # el mismo ritmo de consultas que antes.
+                    if disponibles_filtrados and not (
+                            es_url_eleventickets(url_final)
+                            and _config_eleventickets(url_final).get("reintentar_siempre")):
+                        time.sleep(PAUSA_TRAS_DISPONIBILIDAD)
+                except Exception as e:
+                    print(f"✗ Error procesando {url}: {e}")
+                    log.exception(f"Error procesando {url}")
+                    # La misma pausa que antes seguia a un error: no se acelera el
+                    # ritmo de consultas por el hecho de continuar con la siguiente.
+                    time.sleep(5)
+
+            # Fin de ronda: se persisten tambien los contadores de ausencia
+            guardar_estado(estado)
+
+        except Exception as e:
+            print(f"✗ Error en monitoreo: {e}")
+            log.exception("Error en la ronda, fuera del procesamiento de URLs")
+            time.sleep(5)
+
+    print("\n✗ Máximo de intentos alcanzado (10000000)")
+    return False
+
+
+def obtener_nombre_evento(driver):
+    """
+    Extrae el nombre del evento de la página, para el mensaje de Telegram.
+
+    Se llama justo despues de que verificar_disponibilidad_* ya leyo sectores
+    o localidades en la misma pagina, no tras una visita nueva. Aun asi, en
+    paginas que se re-renderizan solas (TaquillaLive book-performance sondea
+    su propio estado cada pocos segundos) el DOM puede estar a mitad de un
+    repintado justo en ese instante y ningun selector encuentra nada. No es
+    una peticion nueva al sitio -- es releer la pagina que ya esta cargada --
+    asi que un par de reintentos cortos no van contra la regla de no
+    aumentar el ritmo de peticiones (esa regla es sobre visitas, no sobre
+    consultas al DOM de una pagina ya abierta).
+    """
+    selectores = [
+        "//h1",
+        "//h2[@class='event-title']",
+        "//div[@class='title']",
+        "//span[@class='event-name']",
+        "//div[contains(@class, 'event-header')]//h1",
+        "//div[contains(@class, 'event-info')]//h1"
+    ]
+
+    for intento in range(3):
+        try:
+            for selector in selectores:
+                try:
+                    nombre = driver.find_element(By.XPATH, selector).text.strip()
+                    if nombre and len(nombre) > 3:
+                        return nombre
+                except WebDriverException:
+                    continue
+
+            # Si no encuentra por XPath, intentar del título de la página
+            titulo = driver.title.split('|')[0].strip() if '|' in driver.title else driver.title
+            if titulo and len(titulo) > 3:
+                return titulo
+
+        except WebDriverException:
+            pass
+        except Exception:
+            log.exception("Error inesperado obteniendo el nombre del evento")
+            return "Evento"
+
+        if intento < 2:
+            time.sleep(0.5)
+
+    return "Evento"
+
+
+def nombre_evento_desde_artist_url(url):
+    """
+    Ultimo recurso para el nombre del evento, sin tocar el DOM.
+
+    TaquillaLive pone el artista en la propia URL (?artist=feid&event=...).
+    A diferencia de obtener_nombre_evento(), esto no puede fallar por un
+    repintado a mitad de consulta: es leer un dato que ya se tiene. Sirve de
+    respaldo para cuando el DOM no da el nombre, en vez del literal "Evento"
+    sin ningun contexto.
+    """
+    from urllib.parse import urlparse, parse_qs
+
+    try:
+        artista = parse_qs(urlparse(url).query).get("artist", [None])[0]
+    except ValueError:
+        return None
+    if not artista:
+        return None
+    return artista.replace('-', ' ').replace('_', ' ').strip().title() or None
+
+
+def obtener_fecha_evento(driver):
+    """Extrae la fecha del evento de la página"""
+    try:
+        fecha = None
+
+        # Intentar encontrar fechas en formato común
+        selectores = [
+            "//span[contains(text(), '202')]",  # Años 202x
+            "//div[contains(@class, 'date')]",
+            "//time",
+            "//span[@class='date']",
+            "//p[contains(text(), 'viernes') or contains(text(), 'sábado') or contains(text(), 'domingo') or contains(text(), 'lunes') or contains(text(), 'martes') or contains(text(), 'miércoles') or contains(text(), 'jueves')]"
+        ]
+
+        for selector in selectores:
+            try:
+                elemento = driver.find_element(By.XPATH, selector)
+                texto = elemento.text.strip()
+                if texto and len(texto) > 5:
+                    # Si contiene día y mes, es probablemente una fecha
+                    if any(mes in texto.lower() for mes in
+                           ['enero', 'febrero', 'marzo', 'abril', 'mayo', 'junio', 'julio', 'agosto', 'septiembre',
+                            'octubre', 'noviembre', 'diciembre', 'january', 'february', 'march', 'april', 'may', 'june',
+                            'july', 'august', 'september', 'october', 'november', 'december']):
+                        fecha = texto
+                        break
+                    elif '202' in texto:  # Contiene año
+                        fecha = texto
+                        break
+            except WebDriverException:
+                continue
+
+        return fecha if fecha else None
+
+    except WebDriverException:
+        return None
+    except Exception:
+        log.exception("Error inesperado obteniendo la fecha del evento")
+        return None
+
+
+# Separadores que se tratan como un espacio al comparar nombres de localidad.
+SEPARADORES_LOCALIDAD = ["-", "–", "—", ",", "/"]
+
+
+def normalizar_nombre(texto):
+    """
+    Deja un nombre de localidad en una forma comparable.
+
+    Los nombres los escribe a mano quien da de alta cada evento, y no son
+    consistentes: en Mana la pagina informativa dice "110, 112, 114" y la de
+    venta "110 - 112 - 114"; aparece "Platea E  Pares" con doble espacio y
+    "106 -108" sin espacio tras el guion. Sin normalizar, un filtro de dos
+    palabras como "PLATEA E" fallaria en silencio ante un doble espacio.
+
+    Se pasa a minusculas, se quitan tildes, los separadores cuentan como
+    espacio y los espacios repetidos se reducen a uno. Se aplica igual a las
+    palabras del filtro y a los nombres de la pagina, en todos los eventos.
+    """
+    texto = unicodedata.normalize("NFKD", texto or "")
+    texto = "".join(c for c in texto if not unicodedata.combining(c)).lower()
+    for separador in SEPARADORES_LOCALIDAD:
+        texto = texto.replace(separador, " ")
+    return " ".join(texto.split())
+
+
+def filtrar_localidades(disponibles, url):
+    """
+    Filtra las localidades disponibles según los criterios definidos
+
+    Retorna:
+    - localidades filtradas si hay coincidencias
+    - lista vacía si no hay coincidencias
+    - todas las localidades si la URL no tiene filtro definido
+    """
+    # Si la URL no tiene filtro, retornar todas
+    if url not in FILTROS_LOCALIDADES:
+        return disponibles
+
+    filtro = FILTROS_LOCALIDADES[url]
+
+    # Si el filtro está vacío, retornar todas
+    if not filtro:
+        return disponibles
+
+    # Filtrar: solo localidades que contienen alguna palabra clave (búsqueda parcial)
+    localidades_filtradas = []
+
+    for localidad in disponibles:
+        # Los avisos sin detalle no se filtran nunca: no hay nombre de
+        # localidad contra el que comparar, y descartarlos dejaria al usuario
+        # sin enterarse de que la venta abrio.
+        if MARCADOR_SIN_DETALLE in localidad:
+            localidades_filtradas.append(localidad)
+            continue
+
+        nombre = normalizar_nombre(localidad)
+        for palabra_clave in filtro:
+            # Busqueda parcial sobre nombres normalizados. Una palabra clave
+            # que queda vacia (p. ej. solo un guion) se ignora: si no, al
+            # estar contenida en cualquier texto, coincidiria con todo.
+            clave = normalizar_nombre(palabra_clave)
+            if clave and clave in nombre:
+                localidades_filtradas.append(localidad)
+                break  # No agregar duplicados
+
+    return localidades_filtradas
+
+
+# ============================================================
+# PUNTO DE ENTRADA
+# ============================================================
+
+if __name__ == "__main__":
+    preparar_consola()
+    configurar_registro()
+    log.info(f"Monitor iniciado: {len(URLS_A_MONITOREAR)} URLs en seguimiento")
+
+    print("\n" + "=" * 70)
+    print("MONITOR DE DISPONIBILIDAD - TUBOLETA Y PÁSALA")
+    print("=" * 70)
+    print(f"Registro en: {ARCHIVO_LOG}")
+
+    if not puerto_depuracion_activo():
+        # Comet no estaba abierto: se abre como lo haria iniciar_comet_monitor.bat
+        lanzar_chrome()
+    driver = conectar_chrome()
+    if driver:
+        try:
+            exito = monitorear_urls(driver)
+            if exito:
+                print("\n✓ ¡Script completado!")
+            else:
+                print("\n✗ Script finalizado por límite de intentos")
+        except KeyboardInterrupt:
+            print("\n⚠ Script detenido por el usuario")
+            log.info("Monitor detenido por el usuario")
+        except Exception as e:
+            print(f"\n✗ Error: {e}")
+            log.exception("El monitor se detuvo por un error")
+        finally:
+            print("\nScript finalizado")
+            log.info("Monitor finalizado")
+    else:
+        print("\n✗ Error de conexión")
+        log.error("El monitor no arranco: sin conexion con Comet")
