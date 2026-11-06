@@ -81,28 +81,32 @@ def preparar_consola():
 # #TEMP = fuera solo por la venta de la Conmebol (30-oct-2026). Para volver: quitar '#TEMP '.
 URLS_A_MONITOREAR = [
 
+    # HAMILTON AFROROCKSTAR (3-abr-2027). Pagina de fechas:
+    # https://tuboletapass4.checkout.tuboleta.com/selection/event/date?productId=10230576236125
+    "https://tuboletapass4.checkout.tuboleta.com/selection/event/seat?perfId=10230576236247&table=1&productId=10230576236125",
+
     "https://gencolvschl.checkout.tuboleta.com/selection/event/seat?perfId=10230606881035&productId=10230606880885&ot=0&table=1",
 
     # ALCOLIRYCOZ
-    #TEMP "https://tbpgpal.checkout.tuboleta.com/selection/event/date?productId=10230595471270",
+    # TEMP "https://tbpgpal.checkout.tuboleta.com/selection/event/date?productId=10230595471270",
 
     # ALCOLIRYCOZ PASALA
-    #TEMP "https://pasala.checkout.tuboleta.com/selection/resale/item?performanceId=10230595823557",
+    # TEMP "https://pasala.checkout.tuboleta.com/selection/resale/item?performanceId=10230595823557",
 
     # REYKON DEL 6
     # "https://tbpgpal.checkout.tuboleta.com/selection/event/seat?perfId=10230535645360&productId=10230513253147&lang=es",
-    #TEMP "https://tbpgpal.checkout.tuboleta.com/selection/event/seat?perfId=10230535645360&table=1&productId=10230513253147",
+    "https://tbpgpal.checkout.tuboleta.com/selection/event/seat?perfId=10230535645360&table=1&productId=10230513253147",
     #
     # REYKON DEL 7
     # "https://tbpgpal.checkout.tuboleta.com/selection/event/seat?perfId=10230513254076&productId=10230513253147&lang=es",
-    #TEMP "https://tbpgpal.checkout.tuboleta.com/selection/event/seat?perfId=10230513254076&table=1&productId=10230513253147",
+    # TEMP "https://tbpgpal.checkout.tuboleta.com/selection/event/seat?perfId=10230513254076&table=1&productId=10230513253147",
 
     # FUCK NEW MEDELLÍN
-    #TEMP "https://appfreeticket.com/eventos/fucks-news-noticreo-medellin-medellin",
+    # TEMP "https://appfreeticket.com/eventos/fucks-news-noticreo-medellin-medellin",
 
     # SOLIS BUCARAMANGA
     # "https://tbpgpal.checkout.tuboleta.com/selection/event/date?productId=10230542860592",
-    #TEMP "https://tbpgpal.checkout.tuboleta.com/selection/event/seat?perfId=10230544136188&table=1&productId=10230542860592",
+    # TEMP "https://tbpgpal.checkout.tuboleta.com/selection/event/seat?perfId=10230544136188&table=1&productId=10230542860592",
 
     # "https://www.ticketmaster.co/event/bunbury-nuevas-mutaciones-tour-2026-cali",
     #
@@ -112,15 +116,15 @@ URLS_A_MONITOREAR = [
     # "https://www.ticketmaster.co/event/carlos-vives-bucaramanga-venta-general",
 
     # FUCK NEWS
-    #TEMP "https://tbpgpal.checkout.tuboleta.com/selection/event/date?productId=10230576245316",
+    # TEMP "https://tbpgpal.checkout.tuboleta.com/selection/event/date?productId=10230576245316",
     # "https://tbpgpal.checkout.tuboleta.com/selection/event/seat?perfId=10230576236233&table=1&productId=10230576245316",
 
     # LA OREJA DE VAN GOGH
-    #TEMP "https://tbpgpal.checkout.tuboleta.com/selection/event/date?productId=10230529413044",
+    # TEMP "https://tbpgpal.checkout.tuboleta.com/selection/event/date?productId=10230529413044",
 
     # MARCO ANTONIO MEDELLIN
     # "https://tuboletapass.checkout.tuboleta.com/selection/event/date?productId=10230519581504",
-    #TEMP "https://tuboletapass.checkout.tuboleta.com/selection/event/seat?perfId=10230519581622&productId=10230519581504",
+    # TEMP "https://tuboletapass.checkout.tuboleta.com/selection/event/seat?perfId=10230519581622&productId=10230519581504",
     # "https://tuboletapass.checkout.tuboleta.com/selection/event/seat?perfId=10230519581622&table=1&productId=10230519581504",
 
     # STREAM FIGHTERS
@@ -134,7 +138,7 @@ URLS_A_MONITOREAR = [
     # "https://www.ticketmaster.co/event/anuel-aa-venta-general",
 
     # CALVIN HARIS
-    #TEMP "https://www.ticketmaster.co/event/calvin-harris-venta-general",
+    # TEMP "https://www.ticketmaster.co/event/calvin-harris-venta-general",
 
     # KAROL G DEL 4
     # "https://www.ticketmaster.co/event/karol-g-viajando-por-el-mundo-tropitour-venta-general",
@@ -147,14 +151,14 @@ URLS_A_MONITOREAR = [
     # "https://breakfast.checkout.tuboleta.com/selection/event/seat?perfId=10230441698792&table=1&productId=10230441698670",
 
     # LOS CALIGARIS
-    #TEMP "https://tuboletapass4.checkout.tuboleta.com/selection/event/seat?perfId=10230442113890&table=1&productId=10230442107826",
+    # TEMP "https://tuboletapass4.checkout.tuboleta.com/selection/event/seat?perfId=10230442113890&table=1&productId=10230442107826",
 
     # OMAR COURTZ 12--NOV
     # "https://tbpgpal.checkout.tuboleta.com/selection/event/seat?perfId=10230527903278&productId=10230523214255",
-    #TEMP "https://tbpgpal.checkout.tuboleta.com/selection/event/seat?perfId=10230527903278&table=1&productId=10230523214255",
+    # TEMP "https://tbpgpal.checkout.tuboleta.com/selection/event/seat?perfId=10230527903278&table=1&productId=10230523214255",
 
     # OMAR COURTZ 13--NOV
-    #TEMP "https://tbpgpal.checkout.tuboleta.com/selection/event/seat?perfId=10230524219204&productId=10230523214255",
+    # TEMP "https://tbpgpal.checkout.tuboleta.com/selection/event/seat?perfId=10230524219204&productId=10230523214255",
 
     # OMAR COURTZ 12--NOV
     # "https://pasala.checkout.tuboleta.com/selection/resale/item?performanceId=10230527903278&productId=10230523214255&lang=es",
@@ -165,17 +169,9 @@ URLS_A_MONITOREAR = [
     # "https://tbpgpal.checkout.tuboleta.com/selection/event/date?productId=10230387611599", #KRIS R LOCALIDAD FALLA
     # "https://tbpgpal.checkout.tuboleta.com/selection/event/seat?perfId=10230398494504&table=1&productId=10230387611599",
 
-    # DEFF LEPARD
-    #TEMP "https://tbpgpal.checkout.tuboleta.com/selection/event/seat?perfId=10230485786391&table=1&productId=10230485782854",
-
     # GORILLAZ
-    #TEMP "https://www.taquillalive.com/performance-details/?artist=gorillaz&event=TCL.EVN1152.PRF1",
-    #TEMP "https://www.taquillalive.com/book-performance/?artist=gorillaz&event=TCL.EVN1152.PRF1",
-
-    # RYAN BOGOTÁ
-    # "https://breakfast.checkout.tuboleta.com/selection/event/date?productId=10230451310131&_gl=1*4qwrrk*_gcl_au*MTI4ODU1NzA0Ni4xNzc2NjIyOTk5Ljc2MjAzMjQ3NC4xNzgzNTcwNzY2LjE3ODM1NzA3NjY.*_ga*MTk0NDE0NzkuMTc3NjYyMjk5OQ..*_ga_0TVTJ30NVQ*czE3ODM1NjQ3MDEkbzMkZzEkdDE3ODM1NzE2MjYkajUxJGwwJGgxMTI3OTc4Mzc3",
-    # "https://breakfast.checkout.tuboleta.com/selection/event/date?productId=10230451310131",
-    "https://breakfast.checkout.tuboleta.com/selection/event/seat?perfId=10230451311545&table=1&productId=10230451310131",
+    # TEMP "https://www.taquillalive.com/performance-details/?artist=gorillaz&event=TCL.EVN1152.PRF1",
+    # TEMP "https://www.taquillalive.com/book-performance/?artist=gorillaz&event=TCL.EVN1152.PRF1",
 
     # FINAL SUDAMERICANA (Eleventickets)
     "https://sudamericana.eleventickets.com/#!/apresentacao/4bb1cb440b627393353ec181eb59a53056c9786c"
@@ -190,6 +186,10 @@ URLS_A_MONITOREAR = [
 # Si está en el diccionario, solo se notificará si coincide con una de las localidades
 
 FILTROS_LOCALIDADES = {
+
+    # HAMILTON AFROROCKSTAR
+    "https://tuboletapass4.checkout.tuboleta.com/selection/event/seat?perfId=10230576236247&table=1&productId=10230576236125":
+        ["PLATEA", "SEGUNDO PISO"],
 
     "https://gencolvschl.checkout.tuboleta.com/selection/event/seat?perfId=10230606881035&productId=10230606880885&ot=0&table=1":
         ["NORTE", "SUR"],
@@ -207,18 +207,20 @@ FILTROS_LOCALIDADES = {
     # REYKON DEL 6
     # "https://tbpgpal.checkout.tuboleta.com/selection/event/seat?perfId=10230535645360&productId=10230513253147&lang=es",
     "https://tbpgpal.checkout.tuboleta.com/selection/event/seat?perfId=10230535645360&table=1&productId=10230513253147":
-        ["202", "206", "208", "302", "304", "305", "307", "TRIBUNA"],
+        ["202", "206", "208", "302", "304",
+         # "305",
+         "307", "TRIBUNA", "PLATEA"],
 
     # REYKON DEL 7
     # "https://tbpgpal.checkout.tuboleta.com/selection/event/seat?perfId=10230513254076&productId=10230513253147&lang=es",
     "https://tbpgpal.checkout.tuboleta.com/selection/event/seat?perfId=10230513254076&table=1&productId=10230513253147":
-        ["202", "206", "208", "302", "304", "305", "307", "TRIBUNA"],
+        ["202", "206", "208", "302", "304", "305", "307", "TRIBUNA", "PLATEA"],
 
     # SOLIS BUCARAMANGA
     # "https://tbpgpal.checkout.tuboleta.com/selection/event/date?productId=10230542860592":
     #     ["SUR", "NORTE"],
     "https://tbpgpal.checkout.tuboleta.com/selection/event/seat?perfId=10230544136188&table=1&productId=10230542860592":
-        ["SUR", "NORTE"],
+        ["SUR", "NORTE", "PLATINO"],
 
     # FUCK NEWS bogotá
     "https://tbpgpal.checkout.tuboleta.com/selection/event/date?productId=10230576245316":
@@ -256,16 +258,6 @@ FILTROS_LOCALIDADES = {
     "https://pasala.checkout.tuboleta.com/selection/resale/item?performanceId=10230524219204&productId=10230523214255&lang=es":
         ["PLATEA"],
 
-    # RYAN BOGOTÁ
-    "https://breakfast.checkout.tuboleta.com/selection/event/seat?perfId=10230451311545&table=1&productId=10230451310131":
-        [
-            "VIP",
-            # "OCCIDENTAL ALTA",
-            # "OCCIDENTAL BAJA",
-            # "ORIENTAL BAJA",
-            "ORIENTAL ALTA",
-            "SUR ALTA", "NORTE ALTA"],
-
     # CALVIN HARIS
     "https://www.ticketmaster.co/event/calvin-harris-venta-general":
         ["PLATEA 1", "PLATEA 2"],
@@ -280,12 +272,6 @@ FILTROS_LOCALIDADES = {
     # LOS CALIGARIS
     "https://tuboletapass4.checkout.tuboleta.com/selection/event/seat?perfId=10230442113890&table=1&productId=10230442107826":
         ["TRIBUNA", "PLATEA"],
-
-    # DEFF LEPARD
-    "https://tbpgpal.checkout.tuboleta.com/selection/event/seat?perfId=10230485786391&table=1&productId=10230485782854":
-        ["TRIBUNA",
-         "PLATEA",
-         "302", "306"],
 
     # CAMILO
     # "https://breakfast.checkout.tuboleta.com/selection/event/seat?perfId=10230441698792&table=1&productId=10230441698670":
