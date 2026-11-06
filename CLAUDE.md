@@ -405,6 +405,13 @@ fecha, se refiere a aquel navegador.
   mismo bloque con una menos (4 → 3 → 2 → 1) y luego se pasa al siguiente; sin respuesta o
   con la página recargada no se insiste. La cantidad rechazada sigue marcada: se baja con
   `button.botao-subtracao`. El bot no reintenta ni espera a que se libere cupo: una pasada.
+- **Botones de inicio de sesión** (3-nov-2026): el diálogo "Seleccione una forma de inicio de
+  sesión" (socio/hincha de Atlético Mineiro, hincha de Boca, hincha neutro) se llena con
+  `GET logins?url=…` (`Common.ajaxrest`), que responde también con la sesión iniciada, sin abrir
+  el diálogo. `revisar_botones_login()` lo consulta en cada lectura de la URL (una petición JSON
+  más, ~0,2 s, pedida por Aldemar) y avisa por Telegram de cualquier botón fuera de
+  `BOTONES_LOGIN_CONOCIDOS` (se espera "SOCIO DE BOCA JUNIORS"), una vez por ejecución.
+  Verificado en vivo con los 4 de hoy y simulando uno nuevo; el aviso real aún no ha salido.
 - Comprobar el carrito del servidor (solo lectura):
   `Common.ajaxmg('SuperIngressoWeb', 'getCarrinhoQtdReservados', [])`.
 - **Entre ventas el evento se cierra** (30-oct-2026, 11:20, antes de la venta de las 12): el

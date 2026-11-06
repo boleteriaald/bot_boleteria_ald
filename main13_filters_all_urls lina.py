@@ -1,5 +1,6 @@
 import asyncio
 import glob
+import html
 import json
 import logging
 import os
@@ -1025,6 +1026,64 @@ def _buscar_evento_en_home(driver, url):
     return [], ["Presentacion bloqueada, venta en breve"], url
 
 
+# Botones de "Seleccione una forma de inicio de sesion" que ya habia el 3-nov-2026. Cualquier
+# otro (p. ej. "SOCIO DE BOCA JUNIORS") se avisa por Telegram una vez por ejecucion: suele
+# anunciar una venta para ese grupo. Se comparan con normalizar_nombre().
+BOTONES_LOGIN_CONOCIDOS = [
+    "SOCIO DE ATLÉTICO MINEIRO",
+    "HINCHA DE ATLÉTICO MINEIRO",
+    "HINCHA DE BOCA JUNIORS",
+    "HINCHA NEUTRO",
+]
+_BOTONES_LOGIN_AVISADOS = set()
+
+# La lista de botones la da el servidor (GET logins?url=..., lo mismo que pide la pagina al
+# pulsar "Iniciar Sesion"), tambien con la sesion iniciada: el dialogo no hace falta abrirlo.
+# Es una consulta JSON ligera (~0,2 s), una por lectura de la URL.
+JS_BOTONES_LOGIN = """
+var cb = arguments[arguments.length - 1];
+try {
+    angular.element(document.body).injector().get('Common')
+        .ajaxrest('logins?url=' + encodeURIComponent(location.href), 'GET')
+        .then(function (r) {
+            cb((r && r.logins || []).map(function (l) { return l.dsc || ''; }));
+        }, function () { cb(null); });
+} catch (e) { cb(null); }
+"""
+
+
+def revisar_botones_login(driver, url):
+    """
+    Avisa por Telegram de los botones de inicio de sesion que no estaban en
+    BOTONES_LOGIN_CONOCIDOS. Devuelve los nuevos. Si la consulta falla no avisa: una lista
+    que no se pudo leer no es un boton nuevo. Si el Telegram falla, se reintenta en la
+    siguiente lectura. Nunca lanza.
+    """
+    try:
+        dsc = driver.execute_async_script(JS_BOTONES_LOGIN)
+    except Exception:
+        log.exception(f"Eleventickets: no se pudieron leer los botones de inicio de sesion | {url}")
+        return []
+    if not dsc:
+        return []
+    botones = [html.unescape(d).strip() for d in dsc if d]
+    conocidos = {normalizar_nombre(b) for b in BOTONES_LOGIN_CONOCIDOS}
+    nuevos = [b for b in botones if normalizar_nombre(b) not in conocidos
+              and normalizar_nombre(b) not in _BOTONES_LOGIN_AVISADOS]
+    if not nuevos:
+        return []
+    print(f"   🔔 Botones nuevos de inicio de sesion: {nuevos}")
+    log.warning(f"Eleventickets: botones nuevos de inicio de sesion {nuevos} | {url}")
+    mensaje = ("🔔 ELEVENTICKETS: NUEVO BOTÓN DE INICIO DE SESIÓN" + chr(10) + chr(10)
+               + chr(10).join(f"🆕 {b}" for b in nuevos) + chr(10) + chr(10)
+               + "Botones que muestra ahora:" + chr(10)
+               + chr(10).join(f"• {b}" for b in botones) + chr(10) + chr(10)
+               + f"🔗 {url}" + chr(10) + f"⏰ {time.strftime('%H:%M:%S')}")
+    if enviar_notificacion(mensaje):
+        _BOTONES_LOGIN_AVISADOS.update(normalizar_nombre(b) for b in nuevos)
+    return nuevos
+
+
 def verificar_disponibilidad_eleventickets(driver, url, buscar_en_home=True):
     """
     Bloques del mapa de Eleventickets habilitados (disponibles) y deshabilitados (agotadas).
@@ -1868,10 +1927,10 @@ RESERVAR_ELEVENTICKETS = {
     # Todo el estadio. El ORDEN es la prioridad: primero CAT1 Occidental (pedido el 30-oct,
     # Oriental salia agotado), luego CAT2 Oriental y al final CAT3. Ojo: segun las preguntas
     # frecuentes del evento, el sector Sur es solo para hinchas de Atletico Mineiro.
-        # reintentar_siempre: prueba en CADA ronda mientras haya un bloque habilitado que case, no
-        # solo cuando aparece nuevo (pedido para la venta del 30-oct-2026). Sube las peticiones.
-        # completar: no para hasta tener "maximo" entradas en total, aunque queden en sectores
-        # distintos, y sin el freno de 10 min tras un exito. Al llegar deja de intentar.
+    # reintentar_siempre: prueba en CADA ronda mientras haya un bloque habilitado que case, no
+    # solo cuando aparece nuevo (pedido para la venta del 30-oct-2026). Sube las peticiones.
+    # completar: no para hasta tener "maximo" entradas en total, aunque queden en sectores
+    # distintos, y sin el freno de 10 min tras un exito. Al llegar deja de intentar.
         {"maximo": 4, "reintentar_siempre": True, "completar": True, "sectores": [
             "CAT1 - Occidental Tribuna Alta", "CAT1 - Occidental Tribuna Media", "CAT1 - Occidental Tribuna Baja",
             "CAT2 - Oriental Tribuna Alta", "CAT2 - Oriental Tribuna Media", "CAT2 - Oriental Tribuna Baja",
@@ -2528,6 +2587,7 @@ def monitorear_urls(driver):
                     elif es_url_eleventickets(url):
                         disponibles, agotadas, url_final = verificar_disponibilidad_eleventickets(driver, url)
                         tipo = 'Eleventickets'
+                        revisar_botones_login(driver, url_final)
                     elif es_url_tbpgpal(url):
                         disponibles, agotadas, url_final = contar_localidades_disponibles(driver, url)
                         tipo = 'TbpGpal'
