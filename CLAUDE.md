@@ -357,6 +357,58 @@ fecha, se refiere a aquel navegador.
   el Chrome con sesión veía 2 + 88. Sospecha, sin comprobar: hace falta iniciar sesión también en
   este perfil. Hay que iniciarla a mano y comprobarlo antes de darlo por bueno.
 
+## Reserva en Tuboleta: lo que ya se sabe
+
+`reserva_tuboleta.py` (pedido por Aldemar el 6-nov-2026 para Reykon): con una localidad nueva
+en una URL de `RESERVAR_TUBOLETA`, abre la página en el Comet de reserva, marca la **mayor**
+cantidad que ofrezca "Cantidad de boletas" (suele ser 6-10; `maximo` la limita), pulsa "Añadir
+al carrito" y, si la rechaza, prueba con una menos hasta 1. Para ahí: nunca paga. Solo páginas
+`selection/event/seat` (las de fechas no). `reservar_tuboleta.py` lo hace a mano, una vez.
+
+- Tuboleta es SecuTix. Con `table=1` sale la tabla "Mejor sitio" (`form#event_form`); el bot lo
+  añade si falta. Cada fila: `th.category`, `.audience-subcat-name` y
+  `td.quantity select[name$=".quantity"]` (0..N). Agotada = fila sin selector. "Añadir al
+  carrito" = `a#book`. Cesta: aria-label de `#account_cart` ("N productos").
+- Leído en vivo (Colombia vs Chile, 6-nov-2026, solo lectura): la tabla, los selectores y la
+  cesta. **Sin verificar**: qué pasa al pulsar "Añadir al carrito" (pantalla de éxito, texto del
+  rechazo, si el tope del selector ya refleja lo que queda). El éxito se decide porque sube la
+  cesta; si la página cambia sin poder leerla, se avisa como éxito con la pestaña abierta.
+- La bajada N → 1 hace un POST por intento: solo ocurre al detectar disponibilidad.
+- Hamilton (`tuboletapass4`, 6-nov-2026): PLATEA, SEGUNDO PISO y 206 & 214 dejaban hasta 10. Su
+  "Agotado" es otra variante: una capa `.category_unavailable_overlay` en la fila. La página de
+  fechas (`selection/event/date`) muestra el plano y el monitor no lee nada ahí: hay que vigilar
+  la URL de "Mejor sitio" (`seat?perfId=…&table=1`). La reserva sí acepta la de fechas (sigue
+  ese enlace, una carga más).
+- **DataDome** (`js.datadome.co/tags.js` en todas las páginas, `replayAfterChallenge: true`).
+  Primera reserva real (Hamilton, PLATEA x10, 15:54 del 6-nov-2026, Comet de reserva): el POST de
+  "Añadir al carrito" devolvió la verificación "no eres un robot"; el bot no la reconocía, la tomó
+  por página desconocida y **cerró la pestaña** antes de que Aldemar la resolviera. Ahora
+  (`JS_VERIFICACION`: iframe de `captcha-delivery.com`) trae la pestaña al frente, manda un
+  Telegram al instante (`al_verificar`) y espera `ESPERA_VERIFICACION` (180 s) sin tocarla; al
+  pasarla, la página repite el pedido sola y se lee la cesta. Una página desconocida tras añadir
+  ya no cierra la pestaña. El bot nunca intenta resolver la verificación. Sin verificar: lo que
+  pasa tras resolverla y si sale siempre o solo en el Comet controlado por Selenium.
+
+- **Primera reserva buena** (Hamilton, 16:12 del 6-nov-2026, ya reiniciado con el arreglo de
+  DataDome): 10 PLATEA en 6 s, cesta "10 productos" (cuenta boletas, no líneas). Esa vez no salió
+  la verificación.
+- **`"completar": True` + `"maximo": 20`** (pedido ese día para Hamilton y Reykon; mismos nombres
+  y sentido que en Eleventickets: con `completar`, `maximo` es el total del carrito; sin él, el
+  tope de la única tanda. `max_reservas` es solo de Ticketmaster): no para en la primera tanda; repite la
+  primera localidad mientras acepte el máximo (10 PLATEA + 10 PLATEA) y, si una tanda tuvo que
+  bajar para entrar, pasa a la siguiente (completa con SEGUNDO PISO). Entre tandas vuelve a la tabla
+  (`volver()`, una carga solo si la respuesta no es ya la tabla). Topes: `MAX_RECHAZOS` (15 POST
+  rechazados por reserva) y un rechazo que parezca de tope de compra (`RE_LIMITE_COMPRA`,
+  supuesto) para todo. Sin verificar: una segunda tanda en vivo, la pantalla tras el éxito y si
+  Tuboleta pone tope por compra o por cuenta.
+
+- **Tope por compra** (Hamilton, 16:31 y 16:40 del 6-nov-2026, con 10 PLATEA ya en la cesta): "Lo
+  sentimos, el número seleccionado de entradas no puede añadirse a la cesta: el número máximo
+  permitido es 10." Cuenta lo que ya hay en la cesta; según Aldemar, en otros eventos es 12, 15 o
+  50. El bot no lo reconocía y bajaba 10 → 1 en cada localidad (más de 10 POST perdidos por intento).
+  Ahora `RE_MAXIMO_PERMITIDO` lee N: si cabe algo (N − cesta) prueba con eso una vez y para; si no,
+  para y lo dice en el Telegram. Ojo: la cesta cuenta boletas de **todos** los eventos que tenga.
+
 ## Eleventickets (Final Sudamericana): lo que ya se sabe
 
 `reserva_eleventickets.py` añade al carrito hasta 4 entradas en el Comet de reserva y

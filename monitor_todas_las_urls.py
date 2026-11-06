@@ -24,6 +24,7 @@ from telegram.error import TelegramError
 
 import reserva_eleventickets
 import reserva_ticketmaster
+import reserva_tuboleta
 from config import TELEGRAM_BOT_TOKEN, TELEGRAM_CHAT_ID
 
 # ============================================================
@@ -592,6 +593,11 @@ def es_url_taquillalive_book(url):
     return "taquillalive.com" in url and "book-performance" in url
 
 
+def es_url_tuboleta_asientos(url):
+    """Seleccion de boletas de un evento de Tuboleta (no Pasala): la que sabe usar reserva_tuboleta."""
+    return "checkout.tuboleta.com/selection/event/seat" in url and not es_url_pasala(url)
+
+
 def es_url_eleventickets(url):
     """Detecta si es una URL de Eleventickets (Final Sudamericana)"""
     return "eleventickets.com" in url
@@ -971,7 +977,6 @@ def verificar_disponibilidad_ticketmaster(driver, url):
 
 
 ESPERA_MAPA_ELEVENTICKETS = 12  # Segundos maximos hasta que el mapa pinte sus bloques
-
 
 # La pagina del evento puede estar cerrada entre ventas (30-oct-2026: el enlace de la venta anterior
 # decia "Presentación bloqueada", sin mapa, y la home "VENTA DE ENTRADAS EN BREVE").
@@ -1936,6 +1941,30 @@ RESERVAR_ELEVENTICKETS = {
             "CAT3 - Norte", "CAT3 - Sur"]}
 }
 
+# Reserva en Tuboleta (reserva_tuboleta.py): cuando aparece NUEVA una localidad que cumple, se
+# abre la pagina en una pestana del navegador de reserva, se marca en "Cantidad de boletas" la
+# MAYOR cantidad que deje la pagina (suele ser de 6 a 10) y se pulsa "Anadir
+# al carrito". Si la rechaza, prueba con una menos (10 -> 9 -> ... -> 1): se queda con las que
+# haya. Ahi se para: el pago lo hace el usuario desde "Mi cesta" en esa pestana.
+# Solo paginas selection/event/seat (no las de fechas). "sectores" son palabras; su ORDEN es la
+# prioridad; sin "sectores" vale cualquier localidad. Independiente de FILTROS_LOCALIDADES.
+# "maximo" y "completar" significan lo mismo que en Eleventickets (un solo carrito que se llena):
+#   - sin "completar": UNA tanda; "maximo" (opcional) la limita.
+#   - "completar": True: sigue anadiendo tandas hasta "maximo" boletas EN TOTAL (cada tanda, lo
+#     que deje el selector). Repite la PRIMERA localidad mientras acepte la tanda entera y solo
+#     luego pasa a la siguiente (10 PLATEA + 10 PLATEA; si PLATEA ya no da, SEGUNDO PISO).
+# No hay "max_reservas": eso es de Ticketmaster, que hace reservas separadas en varias pestanas.
+RESERVAR_TUBOLETA = {
+
+    # HAMILTON AFROROCKSTAR: prueba de la reserva (6-nov-2026, habia PLATEA a la venta)
+    "https://tuboletapass4.checkout.tuboleta.com/selection/event/seat?perfId=10230576236247&table=1&productId=10230576236125":
+        {"sectores": ["PLATEA", "SEGUNDO PISO"], "maximo": 50, "completar": True},
+
+    # REYKON DEL 7
+    "https://tbpgpal.checkout.tuboleta.com/selection/event/seat?perfId=10230513254076&table=1&productId=10230513253147":
+        {"sectores": ["PLATEA", "SEGUNDO PISO", "TERCER PISO"], "maximo": 50, "completar": True},
+}
+
 # Un bloqueo persiste; avisar en cada ronda solo cambiaria un problema de
 # ruido por otro. Un aviso por sitio y por hora basta para enterarse.
 INTERVALO_AVISO_BLOQUEO = 3600  # Segundos
@@ -2356,6 +2385,91 @@ def intentar_reserva(driver, url, sectores, nombre_evento):
     return [reserva]
 
 
+def intentar_reserva_tuboleta(driver, url, localidades_nuevas, nombre_evento):
+    """
+    Anade al carrito en Tuboleta y avisa por Telegram. Nunca lanza.
+
+    Se dispara si alguna localidad recien disponible casa con RESERVAR_TUBOLETA[url]
+    ["sectores"] (sin sectores, cualquiera); la pagina de reserva vuelve a mirar todas las que
+    casan, por prioridad. Devuelve la Reserva, o None si no tocaba.
+    """
+    config = RESERVAR_TUBOLETA.get(url) or {}
+    palabras = config.get("sectores") or []
+    # Como en Eleventickets: con "completar", "maximo" es el total del carrito y cada tanda toma
+    # lo que deje el selector; sin el, "maximo" limita la unica tanda.
+    if config.get("completar"):
+        maximo, total = None, config.get("maximo")
+    else:
+        maximo, total = config.get("maximo"), None
+    if palabras:
+        claves = [normalizar_nombre(p) for p in palabras if normalizar_nombre(p)]
+        if not any(c in normalizar_nombre(l) for l in localidades_nuevas for c in claves):
+            log.info(
+                f"RESERVA Tuboleta: ninguna localidad nueva coincide con {palabras}: {localidades_nuevas[:10]} | {url}")
+            return None
+    # Mismo freno que en Ticketmaster: si el aviso fallo, la localidad vuelve a ser "nueva".
+    if time.time() - _ULTIMA_RESERVA.get(url, 0) < INTERVALO_RECORDATORIO:
+        print("   🎟️ Ya se añadió al carrito hace poco en este evento; no se repite")
+        return None
+
+    log.warning(f"RESERVA Tuboleta: nuevas {localidades_nuevas[:10]}; intentando {palabras or 'cualquiera'} "
+                f"(max {maximo or 'el de la pagina'} por tanda, total {total or 'una tanda'}) | {url}")
+    navegador, motivo = navegador_reserva(driver)
+    if navegador is None:
+        reserva = reserva_tuboleta.Reserva(False, detalle=motivo)
+    else:
+        print("   🎟️ Añadiendo boletas al carrito de Tuboleta en una pestaña nueva...")
+        reserva = _tuboleta_en_pestana(navegador, url, palabras, maximo, nombre_evento, total)
+    if reserva.ok:
+        _ULTIMA_RESERVA[url] = time.time()
+    resultado = "OK" if reserva.ok else "FALLO"
+    log.warning(f"RESERVA Tuboleta {resultado}: {reserva} | {url}")
+    print(f"   🎟️ Carrito {resultado}: {reserva.detalle or str(reserva.cantidad) + ' boleta(s)'}")
+    # Nada a la venta en la pagina (la lectura del monitor vio algo que no es una localidad,
+    # o ya se agoto): el aviso de disponibilidad ya salio, un segundo Telegram no aporta.
+    if not reserva.sin_disponibles:
+        enviar_notificacion(reserva_tuboleta.mensaje(reserva, nombre_evento, url, time.strftime('%H:%M:%S')))
+    return reserva
+
+
+def _tuboleta_en_pestana(navegador, url, palabras, maximo, nombre_evento="Evento", total=None):
+    """
+    reservar() de Tuboleta en una pestana nueva del navegador de reserva. Si algo entro al
+    carrito (o no se sabe), la pestana se deja abierta; si fallo limpio, se cierra. Nunca lanza.
+    """
+    original = navegador.current_window_handle
+    cerrar = False
+    try:
+        navegador.switch_to.new_window("tab")
+
+        def al_verificar():
+            # Sin este aviso inmediato la verificacion vencia antes de que nadie la viera
+            # (Hamilton, 6-nov-2026): el resultado de la reserva solo sale al final.
+            log.warning(f"RESERVA Tuboleta: DataDome pide verificacion, esperando a la persona | {url}")
+            print("   🤖 Tuboleta pide verificar que no eres un robot: resuélvela en el Comet de reserva")
+            enviar_notificacion(
+                f"🤖 TUBOLETA PIDE VERIFICACIÓN - RESUÉLVELA YA\n\n📌 {nombre_evento}\n"
+                f"El bot pulsó 'Añadir al carrito' y la página pide verificar que no eres un robot.\n"
+                f"Resuélvela a mano en la pestaña del navegador de reserva (Comet, puerto "
+                f"{RESERVA_PUERTO_DEPURACION}); te espero {reserva_tuboleta.ESPERA_VERIFICACION // 60} min.\n"
+                f"🔗 {url}\n\n⏰ {time.strftime('%H:%M:%S')}")
+
+        pagina = reserva_tuboleta.PaginaSelenium(navegador, url, navegar, al_verificar=al_verificar)
+        reserva = reserva_tuboleta.reservar(pagina, palabras, maximo=maximo, total=total)
+        cerrar = not reserva.ok and not reserva.conservar_pestana
+    except Exception as e:
+        log.exception(f"RESERVA Tuboleta: error inesperado | {url}")
+        reserva = reserva_tuboleta.Reserva(False, detalle=f"error inesperado: {e}", conservar_pestana=True)
+    finally:
+        try:
+            if cerrar:
+                navegador.close()
+            navegador.switch_to.window(original)
+        except WebDriverException:
+            log.exception("RESERVA: no se pudo volver a la pestaña original")
+    return reserva
+
+
 def _config_eleventickets(url):
     """Configuracion de la URL; un enlace nuevo del mismo sitio (hallado en la home) usa la primera."""
     if url in RESERVAR_ELEVENTICKETS:
@@ -2724,6 +2838,15 @@ def monitorear_urls(driver):
                             estado, url_final + CLAVE_RESERVA, candidatos)
                         if nuevas_reserva:
                             intentar_reserva(driver, url_final, nuevas_reserva, obtener_nombre_evento(driver))
+
+                    # Tuboleta (solo URLs de RESERVAR_TUBOLETA): igual, ante localidades nuevas.
+                    if url_final in RESERVAR_TUBOLETA and es_url_tuboleta_asientos(url_final):
+                        candidatos = [d for d in disponibles if MARCADOR_SIN_DETALLE not in d]
+                        nuevas_reserva, _, _ = localidades_a_notificar(
+                            estado, url_final + CLAVE_RESERVA, candidatos)
+                        if nuevas_reserva:
+                            intentar_reserva_tuboleta(driver, url_final, nuevas_reserva,
+                                                      obtener_nombre_evento(driver))
 
                     # Lo mismo para Eleventickets: solo ante bloques recien habilitados. Un bloque
                     # que sigue habilitado no se reintenta en cada ronda (seria una peticion de
