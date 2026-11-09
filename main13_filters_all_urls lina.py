@@ -81,28 +81,26 @@ def preparar_consola():
 # #TEMP = fuera solo por la venta de la Conmebol (30-oct-2026). Para volver: quitar '#TEMP '.
 URLS_A_MONITOREAR = [
 
-    # HAMILTON AFROROCKSTAR (3-abr-2027). Pagina de fechas:
-    # https://tuboletapass4.checkout.tuboleta.com/selection/event/date?productId=10230576236125
-    "https://tuboletapass4.checkout.tuboleta.com/selection/event/seat?perfId=10230576236247&table=1&productId=10230576236125",
+    # MALUMA DEL 5
+    # "https://tbpg.checkout.tuboleta.com/selection/event/date?productId=10230621728548",
+    # "https://tbpg.checkout.tuboleta.com/selection/event/seat?perfId=10230621704518&table=1&productId=10230621728548",
 
-    "https://gencolvschl.checkout.tuboleta.com/selection/event/seat?perfId=10230606881035&productId=10230606880885&ot=0&table=1",
+    # MALUMA DEL 6
+    # "https://tbpgpal.checkout.tuboleta.com/selection/event/date?productId=10230621728549&advantageId=10230621833789",
+    # "https://tbpgpal.checkout.tuboleta.com/selection/event/seat?perfId=10230621704520&advantageId=10230621833789&productId=10230621728549",
+    # "https://tbpgpal.checkout.tuboleta.com/selection/event/seat?perfId=10230621704520&table=1&advantageId=10230621833789&productId=10230621728549",
+    # "https://tbpg.checkout.tuboleta.com/selection/event/date?productId=10230621728549",
+    # "https://tbpg.checkout.tuboleta.com/selection/event/seat?perfId=10230621704520&table=1&productId=10230621728549",
+
+    # MALUMA DEL 7
+    # "https://tbpgpal.checkout.tuboleta.com/selection/event/seat?perfId=10230621704522&advantageId=10230621833789&productId=10230621728550",
+    # "https://tbpgpal.checkout.tuboleta.com/selection/event/seat?perfId=10230621704522&table=1&advantageId=10230621833789&productId=10230621728550",
 
     # ALCOLIRYCOZ
     # TEMP "https://tbpgpal.checkout.tuboleta.com/selection/event/date?productId=10230595471270",
 
     # ALCOLIRYCOZ PASALA
     # TEMP "https://pasala.checkout.tuboleta.com/selection/resale/item?performanceId=10230595823557",
-
-    # REYKON DEL 6
-    # "https://tbpgpal.checkout.tuboleta.com/selection/event/seat?perfId=10230535645360&productId=10230513253147&lang=es",
-    "https://tbpgpal.checkout.tuboleta.com/selection/event/seat?perfId=10230535645360&table=1&productId=10230513253147",
-    #
-    # REYKON DEL 7
-    # "https://tbpgpal.checkout.tuboleta.com/selection/event/seat?perfId=10230513254076&productId=10230513253147&lang=es",
-    # TEMP "https://tbpgpal.checkout.tuboleta.com/selection/event/seat?perfId=10230513254076&table=1&productId=10230513253147",
-
-    # FUCK NEW MEDELLÍN
-    # TEMP "https://appfreeticket.com/eventos/fucks-news-noticreo-medellin-medellin",
 
     # SOLIS BUCARAMANGA
     # "https://tbpgpal.checkout.tuboleta.com/selection/event/date?productId=10230542860592",
@@ -174,7 +172,7 @@ URLS_A_MONITOREAR = [
     # TEMP "https://www.taquillalive.com/book-performance/?artist=gorillaz&event=TCL.EVN1152.PRF1",
 
     # FINAL SUDAMERICANA (Eleventickets)
-    "https://sudamericana.eleventickets.com/#!/apresentacao/4bb1cb440b627393353ec181eb59a53056c9786c"
+    # "https://sudamericana.eleventickets.com/#!/apresentacao/4bb1cb440b627393353ec181eb59a53056c9786c"
 
 ]
 
@@ -187,9 +185,20 @@ URLS_A_MONITOREAR = [
 
 FILTROS_LOCALIDADES = {
 
-    # HAMILTON AFROROCKSTAR
-    "https://tuboletapass4.checkout.tuboleta.com/selection/event/seat?perfId=10230576236247&table=1&productId=10230576236125":
-        ["PLATEA", "SEGUNDO PISO"],
+    # MALUMA DEL 5
+    # "https://tbpg.checkout.tuboleta.com/selection/event/date?productId=10230621728548":
+    # ["202", "206", "208", "302", "304", "305", "307", "TRIBUNA", "PLATEA"],
+    #
+    "https://tbpg.checkout.tuboleta.com/selection/event/seat?perfId=10230621704518&table=1&productId=10230621728548":
+        ["202", "206", "208", "302", "304", "305", "307", "TRIBUNA", "PLATEA"],
+
+    # MALUMA DEL 6
+    # "https://tbpgpal.checkout.tuboleta.com/selection/event/date?productId=10230621728549&advantageId=10230621833789",
+    # "https://tbpgpal.checkout.tuboleta.com/selection/event/seat?perfId=10230621704520&advantageId=10230621833789&productId=10230621728549",
+    # "https://tbpgpal.checkout.tuboleta.com/selection/event/seat?perfId=10230621704520&table=1&advantageId=10230621833789&productId=10230621728549",
+    # "https://tbpg.checkout.tuboleta.com/selection/event/date?productId=10230621728549":
+    "https://tbpg.checkout.tuboleta.com/selection/event/seat?perfId=10230621704520&table=1&productId=10230621728549":
+        ["202", "206", "208", "302", "304", "305", "307", "TRIBUNA", "PLATEA"],
 
     "https://gencolvschl.checkout.tuboleta.com/selection/event/seat?perfId=10230606881035&productId=10230606880885&ot=0&table=1":
         ["NORTE", "SUR"],
@@ -203,18 +212,6 @@ FILTROS_LOCALIDADES = {
         ["202", "206", "208", "302", "304",
          # "305",
          "307", "TRIBUNA"],
-
-    # REYKON DEL 6
-    # "https://tbpgpal.checkout.tuboleta.com/selection/event/seat?perfId=10230535645360&productId=10230513253147&lang=es",
-    "https://tbpgpal.checkout.tuboleta.com/selection/event/seat?perfId=10230535645360&table=1&productId=10230513253147":
-        ["202", "206", "208", "302", "304",
-         # "305",
-         "307", "TRIBUNA", "PLATEA"],
-
-    # REYKON DEL 7
-    # "https://tbpgpal.checkout.tuboleta.com/selection/event/seat?perfId=10230513254076&productId=10230513253147&lang=es",
-    "https://tbpgpal.checkout.tuboleta.com/selection/event/seat?perfId=10230513254076&table=1&productId=10230513253147":
-        ["202", "206", "208", "302", "304", "305", "307", "TRIBUNA", "PLATEA"],
 
     # SOLIS BUCARAMANGA
     # "https://tbpgpal.checkout.tuboleta.com/selection/event/date?productId=10230542860592":
@@ -1896,9 +1893,9 @@ RESERVAR_TICKETMASTER = {
 
     # "https://www.ticketmaster.co/event/mana-2026-venta-general":
     #     {"maximo": 4, "max_reservas": 8, "sectores": ["101", "platea c", "preferencial"]},
-
-    "https://www.ticketmaster.co/event/calvin-harris-venta-general":
-        {"maximo": 4, "max_reservas": 8},
+    #
+    # "https://www.ticketmaster.co/event/calvin-harris-venta-general":
+    #     {"maximo": 4, "max_reservas": 8},
 
     # IRON MAIDEN: Back Field es de entrada general; "107" nombra la SECCION 107 del sector
     # numerado "101 - 103 - 105 - 107" (el bot reserva esa seccion, no la primera libre).
@@ -1943,13 +1940,14 @@ RESERVAR_ELEVENTICKETS = {
 # No hay "max_reservas": eso es de Ticketmaster, que hace reservas separadas en varias pestanas.
 RESERVAR_TUBOLETA = {
 
-    # HAMILTON AFROROCKSTAR: prueba de la reserva (6-nov-2026, habia PLATEA a la venta)
-    "https://tuboletapass4.checkout.tuboleta.com/selection/event/seat?perfId=10230576236247&table=1&productId=10230576236125":
-        {"sectores": ["PLATEA", "SEGUNDO PISO"], "maximo": 50, "completar": True},
+    # MALUMA DEL 5
+    "https://tbpg.checkout.tuboleta.com/selection/event/seat?perfId=10230621704518&table=1&productId=10230621728548":
+        {"sectores": ["302", "304", "305", "307", "TRIBUNA"], "maximo": 50, "completar": True},
 
-    # REYKON DEL 7
-    "https://tbpgpal.checkout.tuboleta.com/selection/event/seat?perfId=10230513254076&table=1&productId=10230513253147":
-        {"sectores": ["PLATEA", "SEGUNDO PISO", "TERCER PISO"], "maximo": 50, "completar": True},
+    # MALUMA DEL 6
+    "https://tbpg.checkout.tuboleta.com/selection/event/seat?perfId=10230621704520&table=1&productId=10230621728549":
+        {"sectores": ["302", "304", "305", "307", "TRIBUNA"], "maximo": 50, "completar": True},
+
 }
 
 # Un bloqueo persiste; avisar en cada ronda solo cambiaria un problema de
