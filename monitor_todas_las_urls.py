@@ -3076,6 +3076,13 @@ if __name__ == "__main__":
     preparar_consola()
     configurar_registro()
     log.info(f"Monitor iniciado: {len(URLS_A_MONITOREAR)} URLs en seguimiento")
+    if not URLS_A_MONITOREAR:
+        # Sin URLs cada ronda dura milisegundos y el bucle, que no pausa entre rondas, daba
+        # cientos de vueltas por segundo guardando el estado en cada una (9-nov-2026, con todas
+        # las de Maluma comentadas: WinError 5 al reemplazar estado_notificaciones.json).
+        print("✗ URLS_A_MONITOREAR no tiene ninguna URL activa (todas comentadas). Nada que vigilar.")
+        log.error("URLS_A_MONITOREAR vacia: el monitor no arranca")
+        sys.exit(1)
 
     print("\n" + "=" * 70)
     print("MONITOR DE DISPONIBILIDAD - TUBOLETA Y PÁSALA")
