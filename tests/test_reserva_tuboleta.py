@@ -195,6 +195,12 @@ class TestMonitor(CasoMonitor):
         _, pestana = self.reservar(["PLATEA"], rtb.Reserva(True, "PLATEA", cantidad=6, pedidas=6))
         pestana.assert_called_once_with("navegador", URL, ["platea"], 6, "Reykon", None)
 
+    def test_una_lista_sola_son_los_sectores(self):
+        # Maluma (9-nov-2026): una lista como en FILTROS_LOCALIDADES tumbaba la URL en cada ronda.
+        self.m.RESERVAR_TUBOLETA = {URL: ["302", "TRIBUNA"]}
+        _, pestana = self.reservar(["TRIBUNA"], rtb.Reserva(True, "TRIBUNA", cantidad=10, pedidas=10))
+        pestana.assert_called_once_with("navegador", URL, ["302", "TRIBUNA"], None, "Reykon", None)
+
     def test_la_url_de_asientos_es_de_tuboleta_y_pasala_no(self):
         self.assertTrue(self.m.es_url_tuboleta_asientos(URL))
         self.assertFalse(self.m.es_url_tuboleta_asientos(

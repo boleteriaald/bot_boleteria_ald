@@ -2389,6 +2389,10 @@ def intentar_reserva_tuboleta(driver, url, localidades_nuevas, nombre_evento):
     casan, por prioridad. Devuelve la Reserva, o None si no tocaba.
     """
     config = RESERVAR_TUBOLETA.get(url) or {}
+    if isinstance(config, (list, tuple)):
+        # Una lista sola, como en FILTROS_LOCALIDADES, son los sectores (una tanda, el maximo
+        # del selector). Antes daba "'list' object has no attribute 'get'" (Maluma, 9-nov-2026).
+        config = {"sectores": list(config)}
     palabras = config.get("sectores") or []
     # Como en Eleventickets: con "completar", "maximo" es el total del carrito y cada tanda toma
     # lo que deje el selector; sin el, "maximo" limita la unica tanda.
