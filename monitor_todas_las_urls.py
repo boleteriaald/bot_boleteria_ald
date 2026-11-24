@@ -111,11 +111,7 @@ URLS_A_MONITOREAR = [
     # "https://tbpgpal.checkout.tuboleta.com/selection/event/date?productId=10230542860592",
     "https://tbpgpal.checkout.tuboleta.com/selection/event/seat?perfId=10230544136188&table=1&productId=10230542860592",
 
-    # "https://www.ticketmaster.co/event/bunbury-nuevas-mutaciones-tour-2026-cali",
-    #
-    # "https://www.ticketmaster.co/event/iron-maiden-venta-general",
-    #
-    # # VIVES PRUEBA
+    # VIVES PRUEBA
     # "https://www.ticketmaster.co/event/carlos-vives-bucaramanga-venta-general",
 
     # FUCK NEWS
@@ -130,18 +126,8 @@ URLS_A_MONITOREAR = [
     "https://tuboletapass.checkout.tuboleta.com/selection/event/seat?perfId=10230519581622&productId=10230519581504",
     # "https://tuboletapass.checkout.tuboleta.com/selection/event/seat?perfId=10230519581622&table=1&productId=10230519581504",
 
-    # STREAM FIGHTERS
-    # "https://www.taquillalive.com/performance-details/?artist=westcol&event=TCL.EVN1440.PRF1",
-    # "https://www.taquillalive.com/book-performance/?artist=westcol&event=TCL.EVN1440.PRF1",
-
     # # MANÁ
     # "https://www.ticketmaster.co/event/mana-2026-venta-general",
-
-    # ANUEL AA
-    # "https://www.ticketmaster.co/event/anuel-aa-venta-general",
-
-    # CALVIN HARIS
-    "https://www.ticketmaster.co/event/calvin-harris-venta-general",
 
     # KAROL G DEL 4
     # "https://www.ticketmaster.co/event/karol-g-viajando-por-el-mundo-tropitour-venta-general",
@@ -153,34 +139,14 @@ URLS_A_MONITOREAR = [
     # CAMILO
     # "https://breakfast.checkout.tuboleta.com/selection/event/seat?perfId=10230441698792&table=1&productId=10230441698670",
 
-    # LOS CALIGARIS
-    "https://tuboletapass4.checkout.tuboleta.com/selection/event/seat?perfId=10230442113890&table=1&productId=10230442107826",
+    # DON OMAR MEDELLIN DEL 6
+    "https://www.ticketmaster.co/event/don-omar-medellin-venta-general-fecha-2",
 
-    # OMAR COURTZ 12--NOV
-    # "https://tbpgpal.checkout.tuboleta.com/selection/event/seat?perfId=10230527903278&productId=10230523214255",
-    "https://tbpgpal.checkout.tuboleta.com/selection/event/seat?perfId=10230527903278&table=1&productId=10230523214255",
+    # DON OMAR MEDELLIN DEL 7
+    "https://www.ticketmaster.co/event/don-omar-medellin-venta-general",
 
-    # OMAR COURTZ 13--NOV
-    "https://tbpgpal.checkout.tuboleta.com/selection/event/seat?perfId=10230524219204&productId=10230523214255",
-
-    # OMAR COURTZ 12--NOV
-    # "https://pasala.checkout.tuboleta.com/selection/resale/item?performanceId=10230527903278&productId=10230523214255&lang=es",
-
-    # OMAR COURTZ 13--NOV
-    # "https://pasala.checkout.tuboleta.com/selection/resale/item?performanceId=10230524219204&productId=10230523214255&lang=es",
-
-    # "https://tbpgpal.checkout.tuboleta.com/selection/event/date?productId=10230387611599", #KRIS R LOCALIDAD FALLA
-    # "https://tbpgpal.checkout.tuboleta.com/selection/event/seat?perfId=10230398494504&table=1&productId=10230387611599",
-
-    # DEFF LEPARD
-    "https://tbpgpal.checkout.tuboleta.com/selection/event/seat?perfId=10230485786391&table=1&productId=10230485782854",
-
-    # GORILLAZ
-    "https://www.taquillalive.com/performance-details/?artist=gorillaz&event=TCL.EVN1152.PRF1",
-    "https://www.taquillalive.com/book-performance/?artist=gorillaz&event=TCL.EVN1152.PRF1",
-
-    # FINAL SUDAMERICANA (Eleventickets)
-    # "https://sudamericana.eleventickets.com/#!/apresentacao/4bb1cb440b627393353ec181eb59a53056c9786c"
+    # DON OMAR CALI
+    "https://www.ticketmaster.co/event/don-omar-cali-venta-general",
 
 ]
 
@@ -252,52 +218,22 @@ FILTROS_LOCALIDADES = {
          "PLATEA",
          "202", "206", "208", "302", "304", "305", "307"],
 
-    # OMAR COURTZ 12--NOV
-    "https://pasala.checkout.tuboleta.com/selection/resale/item?performanceId=10230527903278&productId=10230523214255&lang=es":
-        ["PLATEA"],
-
-    # OMAR COURTZ 13--NOV
-    "https://tbpgpal.checkout.tuboleta.com/selection/event/seat?perfId=10230524219204&productId=10230523214255":
-    # "https://tbpgpal.checkout.tuboleta.com/selection/event/seat?perfId=10230524219204&table=1&productId=10230523214255":
-        ["TRIBUNA",
-         "PLATEA",
-         "202", "206", "208", "302", "304", "305", "307"],
-
-    # OMAR COURTZ 13--NOV
-    "https://pasala.checkout.tuboleta.com/selection/resale/item?performanceId=10230524219204&productId=10230523214255&lang=es":
-        ["PLATEA"],
-
-    # CALVIN HARIS
-    "https://www.ticketmaster.co/event/calvin-harris-venta-general":
-        ["PLATEA 1", "PLATEA 2"],
-
-    # # GORILLAZ
-    # "https://www.taquillalive.com/performance-details/?artist=gorillaz&event=TCL.EVN1152.PRF1":
-    #     ["PLATEA 1", "PLATEA 2"],
-    #
-    # "https://www.taquillalive.com/book-performance/?artist=gorillaz&event=TCL.EVN1152.PRF1":
-    #     ["PLATEA 1", "PLATEA 2"],
-
-    # LOS CALIGARIS
-    "https://tuboletapass4.checkout.tuboleta.com/selection/event/seat?perfId=10230442113890&table=1&productId=10230442107826":
-        ["TRIBUNA", "PLATEA"],
-
-    # DEFF LEPARD
-    "https://tbpgpal.checkout.tuboleta.com/selection/event/seat?perfId=10230485786391&table=1&productId=10230485782854":
-        ["TRIBUNA",
-         "PLATEA",
-         "302", "306"],
-
     # CAMILO
     # "https://breakfast.checkout.tuboleta.com/selection/event/seat?perfId=10230441698792&table=1&productId=10230441698670":
     # # ["TRIBUNA", "PRIMERAS"],
     #     ["PRIMERAS"],
 
-    # FINAL SUDAMERICANA: sin filtro avisaria de los 90 bloques del estadio
-    "https://sudamericana.eleventickets.com/#!/apresentacao/4bb1cb440b627393353ec181eb59a53056c9786c":
-        ["CAT2 - Oriental Tribuna Alta", "CAT2 - Oriental Tribuna Media", "CAT2 - Oriental Tribuna Baja",
-         "CAT1 - Occidental Tribuna Alta", "CAT1 - Occidental Tribuna Media", "CAT1 - Occidental Tribuna Baja",
-         "CAT3 - Norte", "CAT3 - Sur"],
+    # DON OMAR MEDELLIN DEL 6 (sin palcos)
+    "https://www.ticketmaster.co/event/don-omar-medellin-venta-general-fecha-2":
+        ["GRADERIA"],
+
+    # DON OMAR MEDELLIN DEL 7 (sin palcos)
+    "https://www.ticketmaster.co/event/don-omar-medellin-venta-general":
+        ["GRADERIA"],
+
+    # DON OMAR CALI (sin palcos)
+    "https://www.ticketmaster.co/event/don-omar-cali-venta-general":
+        ["OCCIDENTAL", "ORIENTAL", "NORTE"],
 
 }
 
@@ -1972,6 +1908,12 @@ RESERVAR_TUBOLETA = {
             # "202", "206", "208",
             "302", "304", "305", "307", "TRIBUNA",
             # "PLATEA"
+        ],
+
+    # MARCO ANTONIO MEDELLIN
+    "https://tuboletapass.checkout.tuboleta.com/selection/event/seat?perfId=10230519581622&productId=10230519581504":
+        [
+            "NORTE", "SUR", "PLATA", "PLATINO", "GRADERIA",
         ],
 
 }
