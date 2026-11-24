@@ -25,7 +25,8 @@ RAIZ = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 # El monitor importa reserva_ticketmaster, que vive junto a el en la raiz.
 if RAIZ not in sys.path:
     sys.path.insert(0, RAIZ)
-SCRIPT = os.path.join(RAIZ, "main13_filters_all_urls lina.py")
+# MONITOR_SCRIPT permite probar otro de los scripts de la raiz (p. ej. monitor_todas_las_urls.py).
+SCRIPT = os.environ.get("MONITOR_SCRIPT") or os.path.join(RAIZ, "main13_filters_all_urls lina.py")
 
 
 class RelojSimulado:
