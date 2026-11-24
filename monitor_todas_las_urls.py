@@ -109,7 +109,7 @@ URLS_A_MONITOREAR = [
 
     # SOLIS BUCARAMANGA
     # "https://tbpgpal.checkout.tuboleta.com/selection/event/date?productId=10230542860592",
-    "https://tbpgpal.checkout.tuboleta.com/selection/event/seat?perfId=10230544136188&table=1&productId=10230542860592",
+    # "https://tbpgpal.checkout.tuboleta.com/selection/event/seat?perfId=10230544136188&table=1&productId=10230542860592",
 
     # VIVES PRUEBA
     # "https://www.ticketmaster.co/event/carlos-vives-bucaramanga-venta-general",
@@ -148,6 +148,17 @@ URLS_A_MONITOREAR = [
     # DON OMAR CALI
     "https://www.ticketmaster.co/event/don-omar-cali-venta-general",
 
+    # DON OMAR BOGOTA: pagina indice, solo se vigilan sus botones (ver VIGILAR_BOTONES)
+    "https://www.ticketmaster.co/event/don-omar-bogota-2027",
+
+    # DON OMAR PREVENTA FANS: por ahora, mientras se encuentra la URL de venta general de cada ciudad
+    "https://www.ticketmaster.co/event/don-omar-bogota-preventa-artista",
+    "https://www.ticketmaster.co/event/don-omar-cali-preventa-artista",
+    # DON OMAR MEDELLIN DEL 6
+    "https://www.ticketmaster.co/event/don-omar-medellin-preventa-artista-fecha-2",
+    # DON OMAR MEDELLIN DEL 7
+    "https://www.ticketmaster.co/event/don-omar-medellin-preventa-artista",
+
 ]
 
 # ============================================================
@@ -164,7 +175,13 @@ FILTROS_LOCALIDADES = {
     # ["202", "206", "208", "302", "304", "305", "307", "TRIBUNA", "PLATEA"],
     #
     "https://tbpg.checkout.tuboleta.com/selection/event/seat?perfId=10230621704518&table=1&productId=10230621728548":
-        ["202", "206", "208", "302", "304", "305", "307", "TRIBUNA", "PLATEA"],
+        [
+            # "202",
+            "206",
+            # "208", "302", "304", "305", "307",
+            "TRIBUNA",
+            # "PLATEA"
+        ],
 
     # MALUMA DEL 6
     # "https://tbpgpal.checkout.tuboleta.com/selection/event/date?productId=10230621728549&advantageId=10230621833789",
@@ -172,24 +189,48 @@ FILTROS_LOCALIDADES = {
     # "https://tbpgpal.checkout.tuboleta.com/selection/event/seat?perfId=10230621704520&table=1&advantageId=10230621833789&productId=10230621728549",
     # "https://tbpg.checkout.tuboleta.com/selection/event/date?productId=10230621728549":
     "https://tbpg.checkout.tuboleta.com/selection/event/seat?perfId=10230621704520&table=1&productId=10230621728549":
-        ["202", "206", "208", "302", "304", "305", "307", "TRIBUNA", "PLATEA"],
+        [
+            # "202", "206", "208", "302", "304", "305", "307",
+            "TRIBUNA",
+            "314",
+            # "PLATEA"
+        ],
+
+    # MALUMA DEL 7
+    #
+    "https://tbpg.checkout.tuboleta.com/selection/event/seat?perfId=10230621704522&table=1&productId=10230621728550":
+        [
+            # "202", "206", "208",
+            "302", "304", "305", "307",
+            # "TRIBUNA", "PLATEA"
+        ],
+
+    # OREJA DE VAN PASALA
+    "https://pasala.checkout.tuboleta.com/selection/resale/item?performanceId=10230529413161&checkResaleAvailability=true":
+        ["202",
+         # "205",
+         # "207",
+         "208",
+         "302", "305", "TRIBUNA",
+         # "101"
+         ],
 
     # HAMILTON AFROROCKSTAR
     "https://tuboletapass4.checkout.tuboleta.com/selection/event/seat?perfId=10230576236247&table=1&productId=10230576236125":
         ["PLATEA", "SEGUNDO PISO"],
 
-    "https://gencolvschl.checkout.tuboleta.com/selection/event/seat?perfId=10230606881035&productId=10230606880885&ot=0&table=1":
-        ["NORTE", "SUR"],
-
     # ALCOLIRYCOZ
     "https://tbpgpal.checkout.tuboleta.com/selection/event/date?productId=10230595471270":
-        ["202", "206", "208", "302", "304", "305", "307", "TRIBUNA"],
+        ["202", "206", "208", "302", "304", "305", "307", "PLATEA", "TRIBUNA"],
 
     # ALCOLIRYCOZ PASALA
     "https://pasala.checkout.tuboleta.com/selection/resale/item?performanceId=10230595823557":
-        ["202", "206", "208", "302", "304",
-         # "305",
-         "307", "TRIBUNA"],
+        [
+            # "202",
+            "206", "208", "302", "304",
+            # "305",
+            # "PLATEA",
+            "307", "TRIBUNA"],
 
     # SOLIS BUCARAMANGA
     # "https://tbpgpal.checkout.tuboleta.com/selection/event/date?productId=10230542860592":
@@ -203,37 +244,47 @@ FILTROS_LOCALIDADES = {
 
     # MARCO ANTONIO MEDELLIN
     # "https://tuboletapass.checkout.tuboleta.com/selection/event/date?productId=10230519581504",
-    # "https://tuboletapass.checkout.tuboleta.com/selection/event/seat?perfId=10230519581622&table=1&productId=10230519581504":
-    "https://tuboletapass.checkout.tuboleta.com/selection/event/seat?perfId=10230519581622&productId=10230519581504":
-        ["GRADERIA"],
+    "https://tuboletapass.checkout.tuboleta.com/selection/event/seat?perfId=10230519581622&table=1&productId=10230519581504":
+    # "https://tuboletapass.checkout.tuboleta.com/selection/event/seat?perfId=10230519581622&productId=10230519581504":
+        ["GRADERIA", "NORTE", "SUR", "GRADERÍA PLATINO"],
 
     # MANÁ
     "https://www.ticketmaster.co/event/mana-2026-venta-general":
         ['PLATEA A'],
-
-    # OMAR COURTZ 12--NOV
-    # "https://tbpgpal.checkout.tuboleta.com/selection/event/seat?perfId=10230527903278&productId=10230523214255":
-    "https://tbpgpal.checkout.tuboleta.com/selection/event/seat?perfId=10230527903278&table=1&productId=10230523214255":
-        ["TRIBUNA",
-         "PLATEA",
-         "202", "206", "208", "302", "304", "305", "307"],
 
     # CAMILO
     # "https://breakfast.checkout.tuboleta.com/selection/event/seat?perfId=10230441698792&table=1&productId=10230441698670":
     # # ["TRIBUNA", "PRIMERAS"],
     #     ["PRIMERAS"],
 
-    # DON OMAR MEDELLIN DEL 6 (sin palcos)
-    "https://www.ticketmaster.co/event/don-omar-medellin-venta-general-fecha-2":
-        ["GRADERIA"],
+    # # DON OMAR MEDELLIN DEL 6 (sin palcos)
+    # "https://www.ticketmaster.co/event/don-omar-medellin-venta-general-fecha-2":
+    #     ["GRADERIA"],
+    #
+    # # DON OMAR MEDELLIN DEL 7 (sin palcos)
+    # "https://www.ticketmaster.co/event/don-omar-medellin-venta-general":
+    #     ["GRADERIA"],
+    #
+    # # DON OMAR CALI (sin palcos)
+    # "https://www.ticketmaster.co/event/don-omar-cali-venta-general":
+    #     ["OCCIDENTAL", "ORIENTAL", "NORTE"],
 
-    # DON OMAR MEDELLIN DEL 7 (sin palcos)
-    "https://www.ticketmaster.co/event/don-omar-medellin-venta-general":
-        ["GRADERIA"],
+}
 
-    # DON OMAR CALI (sin palcos)
-    "https://www.ticketmaster.co/event/don-omar-cali-venta-general":
-        ["OCCIDENTAL", "ORIENTAL", "NORTE"],
+# Localidades que NUNCA se avisan en una URL, aunque no haya filtro o casen con el filtro: si el
+# nombre contiene alguna de estas palabras (sin tildes ni mayusculas) se descarta. Sirve para
+# "todo menos palcos" cuando la palabra de una localidad es parte de otra (en Medellin la grada
+# se llama "Norte" y el palco "Palco Oro Norte": un filtro por "Norte" avisaria de los dos).
+EXCLUIR_LOCALIDADES = {
+
+    # DON OMAR: todo menos palcos (los nombres reales del catalogo llevan "Palco" o "Palcos")
+    "https://www.ticketmaster.co/event/don-omar-medellin-venta-general-fecha-2": ["palco"],
+    "https://www.ticketmaster.co/event/don-omar-medellin-venta-general": ["palco"],
+    "https://www.ticketmaster.co/event/don-omar-cali-venta-general": ["palco"],
+    "https://www.ticketmaster.co/event/don-omar-bogota-preventa-artista": ["palco"],
+    "https://www.ticketmaster.co/event/don-omar-cali-preventa-artista": ["palco"],
+    "https://www.ticketmaster.co/event/don-omar-medellin-preventa-artista-fecha-2": ["palco"],
+    "https://www.ticketmaster.co/event/don-omar-medellin-preventa-artista": ["palco"],
 
 }
 
@@ -877,6 +928,13 @@ def verificar_disponibilidad_ticketmaster(driver, url):
             print(f"   SALA DE ESPERA detectada ({senal_cola}) - LA VENTA ESTA ABIERTA")
             log.warning(f"SALA DE ESPERA ({senal_cola}): la venta abrio | {url}")
             return [f"{nombre_evento} - SALA DE ESPERA, la venta abrio {MARCADOR_SIN_DETALLE}"], [], url
+
+        # Pagina indice vigilada (VIGILAR_BOTONES): sin venta no tiene catalogo ni dice AGOTADO,
+        # y sin esto caeria en el aviso de "pre-fila" de mas abajo en cada ronda. Si la venta
+        # abre en esta misma pagina, el catalogo aparece y se lee por la via normal de arriba.
+        if url in VIGILAR_BOTONES:
+            print("   Pagina indice sin catalogo: solo se vigilan sus botones")
+            return [], [nombre_evento], url
 
         print("   AVISO: no se pudo leer el detalle por localidad, se usa el metodo antiguo")
         log.warning(f"Ticketmaster sin catalogo legible, modo sin detalle | {url}")
@@ -1857,6 +1915,29 @@ RESERVAR_TICKETMASTER = {
     # "https://www.ticketmaster.co/event/iron-maiden-venta-general":
     #     {"maximo": 4, "sectores": ["back", "107", "front field sur", "111"]},
 
+    # DON OMAR (24-nov-2026): todo menos palcos, hasta 4 boletas y hasta 8 localidades a la vez
+    # (cada una en su pestana; usted decide cual pagar y las demas vencen solas). "excluir" quita
+    # los palcos ("Palco Oro Norte", "Palcos Rubi x 10 - Occidental"): son de 10 personas y de
+    # millones, y sin eso la grada "Norte" casaria tambien con "Palco Oro Norte". Sin "sectores":
+    # vale cualquier localidad, en el orden del catalogo (el Kingdom VIP entra).
+    # Primero las preventas (hoy son las unicas con catalogo) y luego las de venta general
+    # (existen pero aun sin catalogo: abren el 26-nov-2026 a las 10:00). Bogota no tiene aun URL
+    # de venta general (ver VIGILAR_BOTONES).
+    "https://www.ticketmaster.co/event/don-omar-bogota-preventa-artista":
+        {"maximo": 4, "max_reservas": 8, "excluir": ["palco"]},
+    "https://www.ticketmaster.co/event/don-omar-cali-preventa-artista":
+        {"maximo": 4, "max_reservas": 8, "excluir": ["palco"]},
+    "https://www.ticketmaster.co/event/don-omar-medellin-preventa-artista-fecha-2":
+        {"maximo": 4, "max_reservas": 8, "excluir": ["palco"]},
+    "https://www.ticketmaster.co/event/don-omar-medellin-preventa-artista":
+        {"maximo": 4, "max_reservas": 8, "excluir": ["palco"]},
+    "https://www.ticketmaster.co/event/don-omar-cali-venta-general":
+        {"maximo": 4, "max_reservas": 8, "excluir": ["palco"]},
+    "https://www.ticketmaster.co/event/don-omar-medellin-venta-general-fecha-2":
+        {"maximo": 4, "max_reservas": 8, "excluir": ["palco"]},
+    "https://www.ticketmaster.co/event/don-omar-medellin-venta-general":
+        {"maximo": 4, "max_reservas": 8, "excluir": ["palco"]},
+
 }
 
 # Reserva en Eleventickets (reserva_eleventickets.py): cuando un bloque que cumple aparece
@@ -1910,11 +1991,19 @@ RESERVAR_TUBOLETA = {
             # "PLATEA"
         ],
 
+    # # MARCO ANTONIO MEDELLIN
+    # "https://tuboletapass.checkout.tuboleta.com/selection/event/seat?perfId=10230519581622&productId=10230519581504":
+    #     [
+    #         "NORTE", "SUR", "PLATA", "PLATINO", "GRADERIA",
+    #     ],
+
     # MARCO ANTONIO MEDELLIN
-    "https://tuboletapass.checkout.tuboleta.com/selection/event/seat?perfId=10230519581622&productId=10230519581504":
-        [
-            "NORTE", "SUR", "PLATA", "PLATINO", "GRADERIA",
-        ],
+    "https://tuboletapass.checkout.tuboleta.com/selection/event/seat?perfId=10230519581622&table=1&productId=10230519581504":
+        {"sectores": ["GRADERIA", "NORTE", "SUR", "GRADERÍA PLATINO", "PLATA"], "maximo": 50, "completar": True},
+
+    # # MARCO ANTONIO BUCARA
+    # "https://tbpgpal.checkout.tuboleta.com/selection/event/seat?perfId=10230544136188&table=1&productId=10230542860592":
+    #     {"sectores": ["NORTE", "SUR", "PLATINO"], "maximo": 50, "completar": True},
 
 }
 
@@ -2083,6 +2172,70 @@ def deshacer_avisos(estado, url, nuevas, recordatorios):
         registro = estado.get(_clave_estado(url, localidad))
         if registro is not None:
             registro["ultimo_aviso"] = 0
+
+
+# Vigilancia de botones (Ticketmaster): para una pagina INDICE del evento, que aun sin venta no
+# tiene catalogo, avisa por Telegram cuando aparece un boton cuyo texto contiene alguna de las
+# palabras, con su enlace: ese es el que hay que anadir a URLS_A_MONITOREAR. Los botones de la
+# portada son los `.block_buttons .button_item a` (los de venta y tambien los de terminos).
+# Se leen del HTML que la ronda ya descargo: ni una peticion mas. Avisa una vez por boton, sin
+# recordatorios. Las palabras se comparan normalizadas (sin tildes ni mayusculas).
+VIGILAR_BOTONES = {
+
+    # DON OMAR BOGOTA: su URL de venta general aun no existe (24-nov-2026: solo PREVENTA FANS)
+    "https://www.ticketmaster.co/event/don-omar-bogota-2027":
+        ["venta general"],
+
+}
+CLAVE_BOTON = "@boton"
+JS_BOTONES_PAGINA = """
+return Array.prototype.map.call(
+    document.querySelectorAll('.block_buttons .button_item a'),
+    function (a) {
+        return {texto: (a.innerText || a.textContent || '').trim(), enlace: a.href || ''};
+    });
+"""
+
+
+def vigilar_botones(driver, url, estado):
+    """Avisa de los botones nuevos de una pagina de VIGILAR_BOTONES. Solo lee: no navega."""
+    palabras = [normalizar_nombre(p) for p in VIGILAR_BOTONES.get(url, [])]
+    if not palabras:
+        return
+    try:
+        botones = driver.execute_script(JS_BOTONES_PAGINA) or []
+    except Exception as e:
+        log.warning(f"No se pudieron leer los botones ({e}) | {url}")
+        return
+
+    candidatos = []
+    for boton in botones:
+        texto = (boton.get("texto") or "").strip()
+        if texto and any(p in normalizar_nombre(texto) for p in palabras):
+            candidatos.append(f"{texto} -> {boton.get('enlace', '')}")
+
+    print(f"   Botones en la pagina: {len(botones)} | de venta general: {len(candidatos)}")
+    # Solo cuentan los nuevos: un boton que sigue ahi no se vuelve a avisar.
+    nuevos, _, _ = localidades_a_notificar(estado, url + CLAVE_BOTON, candidatos)
+    if not nuevos:
+        return
+
+    nombre_evento = obtener_nombre_evento(driver)
+    mensaje = f"🚨 BOTÓN NUEVO EN LA PÁGINA DEL EVENTO\n\n📌 {nombre_evento}\n\n"
+    for nuevo in nuevos:
+        texto, _, enlace = nuevo.partition(" -> ")
+        mensaje += f"  • {texto}\n    🔗 {enlace}\n"
+    mensaje += f"\nAñade ese enlace a URLS_A_MONITOREAR.\n📄 Página: {url}\n⏰ {time.strftime('%H:%M:%S')}"
+
+    print(f"📱 Enviando Telegram: botón nuevo {nuevos}")
+    enviado = enviar_notificacion(mensaje)
+    if not enviado:
+        deshacer_avisos(estado, url + CLAVE_BOTON, nuevos, [])
+    guardar_estado(estado)
+    if enviado:
+        log.info(f"BOTON NUEVO avisado | {nuevos} | {url}")
+    else:
+        log.error(f"BOTON NUEVO NO ENVIADO, se reintentara | {nuevos} | {url}")
 
 
 _ULTIMA_RESERVA = {}  # url -> hora de la ultima reserva (modo de una sola reserva)
@@ -2295,6 +2448,13 @@ def intentar_reserva(driver, url, sectores, nombre_evento):
     palabras = config.get("sectores") if isinstance(config, dict) else None
     max_reservas = config.get("max_reservas", 1) if isinstance(config, dict) else 1
     sectores = [s for s in sectores if MARCADOR_SIN_DETALLE not in s]
+    # "excluir": sectores cuyo nombre contenga alguna de esas palabras no se reservan nunca. Hace
+    # falta cuando una palabra de "sectores" es parte de otra localidad ("Norte" y "Palco Oro Norte").
+    excluir = ([normalizar_nombre(p) for p in config.get("excluir") or []]
+               if isinstance(config, dict) else [])
+    excluir = [p for p in excluir if p]
+    if excluir:
+        sectores = [s for s in sectores if not any(p in normalizar_nombre(s) for p in excluir)]
     if palabras:
         claves = [normalizar_nombre(p) for p in palabras if normalizar_nombre(p)]
         todos = sectores
@@ -2694,6 +2854,10 @@ def monitorear_urls(driver):
                             log.warning(f"BLOQUEO anti-bot ({motivo}) | {url_final}")
                             avisar_bloqueo(estado_bloqueo, url_final, motivo)
 
+                    # Botones nuevos de una pagina indice (solo lee lo ya descargado)
+                    if url_final in VIGILAR_BOTONES:
+                        vigilar_botones(driver, url_final, estado)
+
                     # ✅ Deduplicación: avisar solo de lo nuevo o de lo que toca recordar
                     nuevas, recordatorios, ya_avisadas = localidades_a_notificar(
                         estado, url_final, disponibles_filtrados
@@ -2992,6 +3156,16 @@ def filtrar_localidades(disponibles, url):
     - lista vacía si no hay coincidencias
     - todas las localidades si la URL no tiene filtro definido
     """
+    # Primero las exclusiones (EXCLUIR_LOCALIDADES). Un aviso sin detalle no tiene nombre.
+    excluir = [normalizar_nombre(p) for p in EXCLUIR_LOCALIDADES.get(url, [])]
+    excluir = [p for p in excluir if p]
+    if excluir:
+        disponibles = [
+            localidad for localidad in disponibles
+            if MARCADOR_SIN_DETALLE in localidad
+               or not any(p in normalizar_nombre(localidad) for p in excluir)
+        ]
+
     # Si la URL no tiene filtro, retornar todas
     if url not in FILTROS_LOCALIDADES:
         return disponibles
