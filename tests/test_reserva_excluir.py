@@ -67,7 +67,9 @@ class TestConfiguracionDonOmar(Base):
                 self.assertIn(url, real.URLS_A_MONITOREAR)     # y la URL, estar vigilada
                 self.assertEqual(config["maximo"], 4)
                 self.assertEqual(config["max_reservas"], 8)
-                self.assertEqual(config["excluir"], ["palco"])
+                # Lo que importa es que no reserve palcos; el usuario anade mas exclusiones
+                # cuando un sector se reporta en falso (Bogota, 101 - 103 - 105 - 107)
+                self.assertIn("palco", config["excluir"])
 
     def test_la_pagina_indice_de_bogota_no_reserva(self):
         real = cargar_monitor(self._carpeta.name)
