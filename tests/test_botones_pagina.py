@@ -27,6 +27,7 @@ class DriverFalso:
         self.botones = botones
         self.texto = texto
         self.falla_js = falla_js
+        self.con_ver_entradas = False
         self.current_url = URL
         self.title = "Prueba"
         self.scripts = 0
@@ -36,6 +37,8 @@ class DriverFalso:
 
     def execute_script(self, script):
         self.scripts += 1
+        if "ver entrada|comprar entradas" in script:
+            return self.con_ver_entradas
         if "block_buttons" in script:
             if self.falla_js:
                 raise RuntimeError("js roto")
@@ -102,9 +105,44 @@ class TestVigilarBotones(CasoMonitor):
         self.assertEqual(len(self.enviados), 2)
         self.assertIn("https://x/otra-venta", self.enviados[1])
 
+    def test_sin_palabras_avisa_de_cualquier_boton_menos_terminos_y_ignorados(self):
+        self.m.VIGILAR_BOTONES = {URL: {"ignorar": ["preventa fans"]}}
+        self.vigilar(DriverFalso([PREVENTA, TYC]))
+        self.assertEqual(self.enviados, [])
+        nuevo = {"texto": "COMPRA TUS ENTRADAS", "enlace": "https://x/compra"}
+        self.vigilar(DriverFalso([PREVENTA, TYC, nuevo]))
+        self.assertEqual(len(self.enviados), 1)
+        self.assertIn("https://x/compra", self.enviados[0])
+        self.assertNotIn("VENTA GENERAL", self.enviados[0])
+
+    def test_con_dict_vacio_cualquier_boton_nuevo_avisa(self):
+        self.m.VIGILAR_BOTONES = {URL: {}}
+        self.vigilar(DriverFalso([PREVENTA]))
+        self.assertEqual(len(self.enviados), 1)
+
+    def test_el_boton_de_venta_general_sale_destacado(self):
+        self.m.VIGILAR_BOTONES = {URL: {}}
+        self.vigilar(DriverFalso([GENERAL]))
+        self.assertIn("VENTA GENERAL", self.enviados[0])
+
+    def test_dict_con_avisar_filtra_igual_que_la_lista(self):
+        self.m.VIGILAR_BOTONES = {URL: {"avisar": ["venta general"]}}
+        self.vigilar(DriverFalso([PREVENTA, TYC]))
+        self.assertEqual(self.enviados, [])
+        self.vigilar(DriverFalso([PREVENTA, TYC, GENERAL]))
+        self.assertEqual(len(self.enviados), 1)
+
     def test_error_de_javascript_no_rompe_ni_avisa(self):
         self.vigilar(DriverFalso([GENERAL], falla_js=True))
         self.assertEqual(self.enviados, [])
+
+    def test_pagina_vigilada_con_ver_entradas_y_sin_catalogo_avisa_venta_abierta(self):
+        driver = DriverFalso([PREVENTA])
+        driver.con_ver_entradas = True
+        disponibles, agotadas, _ = self.m.verificar_disponibilidad_ticketmaster(driver, URL)
+        self.assertEqual(len(disponibles), 1)
+        self.assertIn("venta abierta", disponibles[0])
+        self.assertEqual(agotadas, [])
 
     def test_pagina_indice_sin_catalogo_no_avisa_de_prefila(self):
         driver = DriverFalso([PREVENTA])
@@ -112,12 +150,37 @@ class TestVigilarBotones(CasoMonitor):
         self.assertEqual(disponibles, [])
         self.assertEqual(agotadas, ["Don Omar - Prueba"])
 
-    def test_la_url_real_de_bogota_esta_vigilada_y_en_la_lista(self):
-        url = "https://www.ticketmaster.co/event/don-omar-bogota-2027"
+    def test_las_urls_reales_de_don_omar_estan_vigiladas_y_en_la_lista(self):
         import importlib
         real = importlib.import_module("apoyo").cargar_monitor(self._carpeta.name)
-        self.assertIn(url, real.VIGILAR_BOTONES)
-        self.assertIn(url, real.URLS_A_MONITOREAR)
+        urls = ["https://www.ticketmaster.co/event/don-omar-bogota-2027",
+                "https://www.ticketmaster.co/event/don-omar-bogota-preventa-artista",
+                "https://www.ticketmaster.co/event/don-omar-cali-preventa-artista",
+                "https://www.ticketmaster.co/event/don-omar-medellin-preventa-artista-fecha-2",
+                "https://www.ticketmaster.co/event/don-omar-medellin-preventa-artista",
+                "https://www.ticketmaster.co/event/don-omar-cali-venta-general",
+                "https://www.ticketmaster.co/event/don-omar-medellin-venta-general-fecha-2",
+                "https://www.ticketmaster.co/event/don-omar-medellin-venta-general"]
+        for url in urls:
+            with self.subTest(url=url):
+                self.assertIn(url, real.VIGILAR_BOTONES)
+                self.assertIn(url, real.URLS_A_MONITOREAR)
+
+    def test_en_la_portada_de_bogota_preventa_fans_y_terminos_no_avisan(self):
+        import importlib
+        real = importlib.import_module("apoyo").cargar_monitor(self._carpeta.name)
+        url = "https://www.ticketmaster.co/event/don-omar-bogota-2027"
+        botones = [PREVENTA, TYC,
+                   {"texto": "T&C PREVENTA CLARO", "enlace": "https://x/tyc-claro"}]
+        enviados = []
+        real.enviar_notificacion = lambda m: enviados.append(m) or True
+        real.guardar_estado = lambda e: None
+        real.obtener_nombre_evento = lambda d: "Don Omar - Bogota"
+        real.vigilar_botones(DriverFalso(botones), url, {})
+        self.assertEqual(enviados, [])
+        real.vigilar_botones(DriverFalso(botones + [GENERAL]), url, {})
+        self.assertEqual(len(enviados), 1)
+        self.assertIn(GENERAL["enlace"], enviados[0])
 
 
 if __name__ == "__main__":

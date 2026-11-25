@@ -123,8 +123,8 @@ URLS_A_MONITOREAR = [
 
     # MARCO ANTONIO MEDELLIN
     # "https://tuboletapass.checkout.tuboleta.com/selection/event/date?productId=10230519581504",
-    "https://tuboletapass.checkout.tuboleta.com/selection/event/seat?perfId=10230519581622&productId=10230519581504",
-    # "https://tuboletapass.checkout.tuboleta.com/selection/event/seat?perfId=10230519581622&table=1&productId=10230519581504",
+    # "https://tuboletapass.checkout.tuboleta.com/selection/event/seat?perfId=10230519581622&productId=10230519581504",
+    "https://tuboletapass.checkout.tuboleta.com/selection/event/seat?perfId=10230519581622&table=1&productId=10230519581504",
 
     # # MANÁ
     # "https://www.ticketmaster.co/event/mana-2026-venta-general",
@@ -836,6 +836,34 @@ try {
 """
 
 
+# Boton que de verdad abre la compra en la portada de un evento ("Ver entradas" o "Ver entrada" en
+# la cabecera, "Comprar entradas" en las portadas nuevas). Hay que exigir que sea VISIBLE: la
+# pagina lleva enlaces ocultos como "Ir a la compra de entradas" que no cuentan.
+JS_HAY_BOTON_DE_COMPRA = """
+var visible = function (e) { return !!(e.offsetWidth || e.offsetHeight || e.getClientRects().length); };
+return Array.prototype.some.call(document.querySelectorAll('a, button'), function (e) {
+    return visible(e) && /^(ver entrada|comprar entradas)/i.test((e.innerText || '').trim());
+});
+"""
+
+
+def _hay_boton_de_compra(driver):
+    try:
+        return bool(driver.execute_script(JS_HAY_BOTON_DE_COMPRA))
+    except Exception:
+        return False
+
+
+def _agotado_sin_compra(driver):
+    """True si la cabecera de la pagina dice AGOTADO (linea sola) y no hay boton de compra."""
+    try:
+        texto = driver.find_element(By.TAG_NAME, "body").text
+    except Exception:
+        return False
+    cabecera = [linea.strip().upper() for linea in texto.splitlines() if linea.strip()][:4]
+    return "AGOTADO" in cabecera and not _hay_boton_de_compra(driver)
+
+
 def verificar_disponibilidad_ticketmaster(driver, url):
     """
     Devuelve las localidades disponibles en Ticketmaster, una por una.
@@ -878,6 +906,17 @@ def verificar_disponibilidad_ticketmaster(driver, url):
             sectores = datos["sectores"]
             disponibles = [s["nombre"] for s in sectores if s["disponible"]]
             agotadas = [s["nombre"] for s in sectores if not s["disponible"]]
+
+            # Catalogo rancio: la pagina muestra el rotulo AGOTADO y ningun boton de compra, pero
+            # el catalogo sigue marcando secciones libres (preventa de Don Omar en Bogota,
+            # 25-nov-2026: un aviso falso cada 10 min y la reserva fallaba con "la pagina no
+            # mostro 'Ver entradas' ni los sectores"). Manda lo que la pagina deja comprar.
+            if disponibles and _agotado_sin_compra(driver):
+                print("   La pagina dice AGOTADO y no deja comprar: se ignora el catalogo "
+                      f"({len(disponibles)} localidades 'libres')")
+                log.info(f"Ticketmaster: AGOTADO en la pagina con catalogo rancio, "
+                         f"{len(disponibles)} 'libres' ignoradas | {url}")
+                return [], [s["nombre"] for s in sectores], url
 
             origen = "estado interno" if datos.get("origen") == "estado" else "panel visible"
             print(f"   Sectores leidos: {len(sectores)} (via {origen})")
@@ -929,11 +968,16 @@ def verificar_disponibilidad_ticketmaster(driver, url):
             log.warning(f"SALA DE ESPERA ({senal_cola}): la venta abrio | {url}")
             return [f"{nombre_evento} - SALA DE ESPERA, la venta abrio {MARCADOR_SIN_DETALLE}"], [], url
 
-        # Pagina indice vigilada (VIGILAR_BOTONES): sin venta no tiene catalogo ni dice AGOTADO,
-        # y sin esto caeria en el aviso de "pre-fila" de mas abajo en cada ronda. Si la venta
-        # abre en esta misma pagina, el catalogo aparece y se lee por la via normal de arriba.
+        # Pagina vigilada (VIGILAR_BOTONES) sin venta (la indice o la de terminos y condiciones de
+        # una venta que aun no abre): no tiene catalogo ni dice AGOTADO, y sin esto caeria en el
+        # aviso de "pre-fila" de mas abajo en cada ronda (25-nov-2026: un Telegram falso cada 10
+        # min por cada URL de venta general de Don Omar). Si la venta abre aqui, el catalogo aparece
+        # y se lee por la via normal de arriba; un "Ver entradas" sin catalogo si se avisa.
         if url in VIGILAR_BOTONES:
-            print("   Pagina indice sin catalogo: solo se vigilan sus botones")
+            if _hay_boton_de_compra(driver):
+                print("   Boton 'Ver entradas' presente - HAY VENTA ABIERTA")
+                return [f"{nombre_evento} - venta abierta {MARCADOR_SIN_DETALLE}"], [], url
+            print("   Pagina sin catalogo ni venta: solo se vigilan sus botones")
             return [], [nombre_evento], url
 
         print("   AVISO: no se pudo leer el detalle por localidad, se usa el metodo antiguo")
@@ -2174,19 +2218,34 @@ def deshacer_avisos(estado, url, nuevas, recordatorios):
             registro["ultimo_aviso"] = 0
 
 
-# Vigilancia de botones (Ticketmaster): para una pagina INDICE del evento, que aun sin venta no
-# tiene catalogo, avisa por Telegram cuando aparece un boton cuyo texto contiene alguna de las
-# palabras, con su enlace: ese es el que hay que anadir a URLS_A_MONITOREAR. Los botones de la
-# portada son los `.block_buttons .button_item a` (los de venta y tambien los de terminos).
-# Se leen del HTML que la ronda ya descargo: ni una peticion mas. Avisa una vez por boton, sin
-# recordatorios. Las palabras se comparan normalizadas (sin tildes ni mayusculas).
+# Vigilancia de botones (Ticketmaster): avisa por Telegram cuando aparece un boton NUEVO en la
+# portada de la URL, con su enlace (el de venta general es el que hay que anadir a
+# URLS_A_MONITOREAR). Los botones de la portada son los `.block_buttons .button_item a`. Se leen
+# del HTML que la ronda ya descargo: ni una peticion mas. Avisa una vez por boton, sin
+# recordatorios. Los textos se comparan normalizados (sin tildes ni mayusculas).
+# El valor de cada URL es un dict (o una lista, que equivale a {"avisar": lista}):
+#   "avisar":  palabras; solo avisa de botones que contengan alguna. Vacio = cualquier boton.
+#   "ignorar": palabras de botones que ya estan y no se avisan (se suman a BOTONES_IGNORADOS).
+# Un boton cuyo texto contiene "venta general" sale destacado en el aviso.
 VIGILAR_BOTONES = {
 
-    # DON OMAR BOGOTA: su URL de venta general aun no existe (24-nov-2026: solo PREVENTA FANS)
+    # DON OMAR BOGOTA: portada. Su URL de venta general aun no existe (solo PREVENTA FANS).
     "https://www.ticketmaster.co/event/don-omar-bogota-2027":
-        ["venta general"],
+        {"ignorar": ["preventa fans"]},
+
+    # DON OMAR: las paginas de preventa y de venta general. Hoy no tienen botones; avisa cuando
+    # salga cualquiera (25-nov-2026: pedido porque sus avisos de disponibilidad eran falsos).
+    "https://www.ticketmaster.co/event/don-omar-bogota-preventa-artista": {},
+    "https://www.ticketmaster.co/event/don-omar-cali-preventa-artista": {},
+    "https://www.ticketmaster.co/event/don-omar-medellin-preventa-artista-fecha-2": {},
+    "https://www.ticketmaster.co/event/don-omar-medellin-preventa-artista": {},
+    "https://www.ticketmaster.co/event/don-omar-cali-venta-general": {},
+    "https://www.ticketmaster.co/event/don-omar-medellin-venta-general-fecha-2": {},
+    "https://www.ticketmaster.co/event/don-omar-medellin-venta-general": {},
 
 }
+# Botones que nunca interesan (terminos y condiciones).
+BOTONES_IGNORADOS = ["terminos", "t&c"]
 CLAVE_BOTON = "@boton"
 JS_BOTONES_PAGINA = """
 return Array.prototype.map.call(
@@ -2197,11 +2256,24 @@ return Array.prototype.map.call(
 """
 
 
+def _config_botones(url):
+    """(palabras a avisar, palabras a ignorar), normalizadas; None si la URL no se vigila."""
+    config = VIGILAR_BOTONES.get(url)
+    if config is None:
+        return None
+    if not isinstance(config, dict):
+        config = {"avisar": list(config)}
+    avisar = [normalizar_nombre(p) for p in config.get("avisar") or []]
+    ignorar = [normalizar_nombre(p) for p in list(config.get("ignorar") or []) + BOTONES_IGNORADOS]
+    return [p for p in avisar if p], [p for p in ignorar if p]
+
+
 def vigilar_botones(driver, url, estado):
     """Avisa de los botones nuevos de una pagina de VIGILAR_BOTONES. Solo lee: no navega."""
-    palabras = [normalizar_nombre(p) for p in VIGILAR_BOTONES.get(url, [])]
-    if not palabras:
+    config = _config_botones(url)
+    if config is None:
         return
+    palabras, ignorar = config
     try:
         botones = driver.execute_script(JS_BOTONES_PAGINA) or []
     except Exception as e:
@@ -2211,17 +2283,22 @@ def vigilar_botones(driver, url, estado):
     candidatos = []
     for boton in botones:
         texto = (boton.get("texto") or "").strip()
-        if texto and any(p in normalizar_nombre(texto) for p in palabras):
+        nombre = normalizar_nombre(texto)
+        if not nombre or any(p in nombre for p in ignorar):
+            continue
+        if not palabras or any(p in nombre for p in palabras):
             candidatos.append(f"{texto} -> {boton.get('enlace', '')}")
 
-    print(f"   Botones en la pagina: {len(botones)} | de venta general: {len(candidatos)}")
+    print(f"   Botones en la pagina: {len(botones)} | a vigilar: {len(candidatos)}")
     # Solo cuentan los nuevos: un boton que sigue ahi no se vuelve a avisar.
     nuevos, _, _ = localidades_a_notificar(estado, url + CLAVE_BOTON, candidatos)
     if not nuevos:
         return
 
     nombre_evento = obtener_nombre_evento(driver)
-    mensaje = f"🚨 BOTÓN NUEVO EN LA PÁGINA DEL EVENTO\n\n📌 {nombre_evento}\n\n"
+    general = any("venta general" in normalizar_nombre(n) for n in nuevos)
+    titulo = "🔥 ¡BOTÓN DE VENTA GENERAL!" if general else "🚨 BOTÓN NUEVO EN LA PÁGINA DEL EVENTO"
+    mensaje = f"{titulo}\n\n📌 {nombre_evento}\n\n"
     for nuevo in nuevos:
         texto, _, enlace = nuevo.partition(" -> ")
         mensaje += f"  • {texto}\n    🔗 {enlace}\n"
