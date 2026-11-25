@@ -1976,8 +1976,11 @@ ESPERA_ARRANQUE_CHROME = 20  # Segundos
 # El perfil se arma con os.path.join para no depender de barras invertidas.
 PUERTO_DEPURACION = 9224
 PERFIL_NAVEGADOR = os.path.join("C:" + os.sep, "selenium", "CometMonitorProfile")
+# Comet se instala por usuario (LOCALAPPDATA, PC del trabajo) o para todo el equipo
+# (Program Files, PC de casa). Se usa la primera ruta que exista.
 RUTAS_NAVEGADOR = [
     os.path.join(os.environ.get("LOCALAPPDATA", ""), "Perplexity", "Comet", "Application", "comet.exe"),
+    os.path.join(os.environ.get("ProgramFiles", r"C:\Program Files"), "Perplexity", "Comet", "Application", "comet.exe"),
 ]
 
 # Como maximo un relanzamiento de Comet cada 5 minutos durante una caida.

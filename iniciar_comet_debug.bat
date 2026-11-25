@@ -9,7 +9,9 @@ REM
 REM Debe estar abierto mientras corre el monitor (el puerto debe coincidir con
 REM RESERVA_PUERTO_DEPURACION en el script).
 
-set COMET=%LOCALAPPDATA%\Perplexity\Comet\Application\comet.exe
+REM Comet instalado por usuario (LOCALAPPDATA) o para todo el equipo (Program Files)
+set "COMET=%LOCALAPPDATA%\Perplexity\Comet\Application\comet.exe"
+if not exist "%COMET%" set "COMET=%ProgramFiles%\Perplexity\Comet\Application\comet.exe"
 
 if not exist "%COMET%" (
     echo ERROR: no se encontro Comet en "%COMET%"
