@@ -2627,6 +2627,29 @@ def reintentar_tras_verificacion(driver, url, nombre_evento):
     return _avisar_carrito(reserva, nombre_evento, url)
 
 
+# Archivo con el que actualizador.py pide al monitor que se detenga para cargar la version
+# nueva del repositorio. Se mira antes de cada URL: nunca corta una lectura ni una reserva
+# (las dos ocurren dentro del procesamiento de una URL). El monitor solo sale; el git pull y
+# el relanzamiento son cosa del actualizador. Sin actualizador, el archivo no existe nunca.
+ARCHIVO_REINICIO = os.path.join(os.path.dirname(os.path.abspath(__file__)), "reiniciar_monitor.flag")
+
+# Codigo de salida cuando no hay ninguna URL activa: el actualizador no lo relanza hasta que
+# llegue un commit nuevo (relanzarlo cada minuto solo serviria para volver a salir).
+SALIDA_SIN_URLS = 4
+
+
+def reinicio_pedido():
+    return os.path.exists(ARCHIVO_REINICIO)
+
+
+def soltar_navegadores(driver):
+    """Para los chromedriver del monitor y de la reserva sin cerrar ningun Comet."""
+    soltar_sesion(driver)
+    for navegador in _NAVEGADOR_RESERVA:
+        soltar_sesion(navegador)
+    _NAVEGADOR_RESERVA.clear()
+
+
 def monitorear_urls(driver):
     """Monitorea todas las URLs en busca de disponibilidad"""
 
@@ -2653,6 +2676,13 @@ def monitorear_urls(driver):
             # Revisar cada URL
             for idx, url in enumerate(URLS_A_MONITOREAR, 1):
                 print(f"\n[URL {idx}/{len(URLS_A_MONITOREAR)}]")
+
+                if reinicio_pedido():
+                    guardar_estado(estado)
+                    print("\nEl actualizador pidio reiniciar: el monitor se detiene para cargar la version nueva")
+                    log.info("Reinicio pedido por el actualizador: el monitor se detiene")
+                    soltar_navegadores(driver)
+                    return "reinicio"
 
                 # Antes de visitar, se comprueba que Comet sigue ahi. Si no, se
                 # recupera la sesion y se continua con esta misma URL, que aun no
@@ -3072,7 +3102,7 @@ if __name__ == "__main__":
         # las de Maluma comentadas: WinError 5 al reemplazar estado_notificaciones.json).
         print("✗ URLS_A_MONITOREAR no tiene ninguna URL activa (todas comentadas). Nada que vigilar.")
         log.error("URLS_A_MONITOREAR vacia: el monitor no arranca")
-        sys.exit(1)
+        sys.exit(SALIDA_SIN_URLS)
 
     print("\n" + "=" * 70)
     print("MONITOR DE DISPONIBILIDAD - TUBOLETA Y PÁSALA")
@@ -3086,7 +3116,9 @@ if __name__ == "__main__":
     if driver:
         try:
             exito = monitorear_urls(driver)
-            if exito:
+            if exito == "reinicio":
+                print("\n↻ Monitor detenido para actualizarse")
+            elif exito:
                 print("\n✓ ¡Script completado!")
             else:
                 print("\n✗ Script finalizado por límite de intentos")

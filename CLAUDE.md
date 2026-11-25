@@ -34,6 +34,17 @@ python "main13_filters_all_urls lina.py"
 
 El nombre del archivo lleva un espacio, así que siempre va entre comillas.
 
+El script que se usa a diario es `monitor_todas_las_urls.py` (copia de `main13…` con otras
+URLs activas); los cambios de código van a los dos. En el PC de casa, que corre 24/7, se
+lanza con `iniciar_monitor_autoactualizable.bat` → `actualizador.py`, que aplica solos los
+commits de `main` (ver README, "Actualización automática desde GitHub"). Consecuencias:
+
+- Un commit a `main` **se despliega en ese PC en un minuto**. Nada a medias en `main`.
+- El monitor se detiene entre URLs si existe `reiniciar_monitor.flag` (`reinicio_pedido()`).
+  Cualquier bucle nuevo que pueda durar mucho debe dejar de mirar solo al final de la ronda.
+- `SALIDA_SIN_URLS` (4) le dice al actualizador que no lo relance hasta el próximo commit.
+- `tests/test_actualizador.py` usa repositorios git reales en una carpeta temporal.
+
 Las pruebas están en `tests/` (unittest, sin dependencias nuevas) y se ejecutan con
 `python -m unittest discover -s tests -v`. Antes vivían en carpetas temporales y se
 perdieron dos veces: **cualquier prueba nueva va a `tests/`**.

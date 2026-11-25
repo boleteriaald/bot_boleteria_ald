@@ -103,6 +103,29 @@ class TestBucle(CasoMonitor):
         self.assertEqual(self.visitas, [("a", "inicial"), ("b", "inicial"), ("c", "reconectado")])
         self.assertEqual(self.recuperaciones, ["inicial"])       # B no se reintenta
 
+    def test_el_actualizador_lo_detiene_entre_urls_sin_cortar_ninguna(self):
+        # actualizador.py crea el archivo mientras se procesa B: B termina, C ya no se visita.
+        detector = self.m.verificar_disponibilidad_ticketmaster
+
+        def detector_que_pide_reinicio(driver, url):
+            if url == B:
+                open(self.m.ARCHIVO_REINICIO, "w").close()
+            return detector(driver, url)
+        self.m.verificar_disponibilidad_ticketmaster = detector_que_pide_reinicio
+        self.lecturas[B] = (["Platea 1"], [])
+        guardados = []
+        self.m.guardar_estado = lambda estado: guardados.append(dict(estado))
+        soltados = []
+        self.m.soltar_sesion = lambda driver: soltados.append(driver.nombre)
+
+        resultado = self.m.monitorear_urls(DriverFalso("inicial"))
+
+        self.assertEqual(resultado, "reinicio")
+        self.assertEqual([v[0] for v in self.visitas], ["a", "b"])
+        self.assertTrue(any(B in clave for clave in guardados[-1]))   # el aviso de B queda guardado
+        self.assertEqual(soltados, ["inicial"])              # chromedriver parado, Comet abierto
+        self.assertIn("Reinicio pedido por el actualizador", self.leer_registro())
+
     def test_registro_por_url_y_lectura_vacia(self):
         self.lecturas[C] = ([], [])
         self.correr(1)

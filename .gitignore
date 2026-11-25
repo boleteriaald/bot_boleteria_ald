@@ -41,3 +41,4 @@ desktop.ini
 logs/
 estado_notificaciones.json
 estado_notificaciones.json.tmp
+reiniciar_monitor.flag

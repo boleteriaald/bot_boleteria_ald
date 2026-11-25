@@ -142,6 +142,43 @@ El script imprime el progreso en consola y no se detiene solo: córtalo con `Ctr
 Si cierras la ventana de Comet con el monitor en marcha, la volverá a abrir: para
 parar de verdad, detén primero el monitor.
 
+### Actualización automática desde GitHub
+
+En el PC que corre el monitor 24/7, lánzalo así en lugar de con `python …`:
+
+```bash
+iniciar_monitor_autoactualizable.bat
+```
+
+Por defecto corre `monitor_todas_las_urls.py` (para otro script, pásalo como argumento).
+`actualizador.py` arranca el monitor y cada minuto hace `git fetch` contra GitHub. Cuando hay
+commits nuevos en `main`:
+
+1. Comprueba que se pueden aplicar: rama `main`, sin cambios sin commitear en ese PC y que
+   todos los `.py` que cambian compilan. Si algo falla, avisa por Telegram (una vez por
+   commit) y **sigue con la versión que ya corría**.
+2. Pide al monitor que se detenga **antes de la siguiente URL**: nunca corta una lectura ni
+   una reserva. Comet no se cierra.
+3. Hace `git pull` (solo avance directo), relanza el monitor y avisa por Telegram:
+   "🔄 Monitor actualizado a …".
+
+Además, si el monitor se cae solo, lo relanza al minuto y manda por Telegram las últimas
+líneas que escribió (como mucho un aviso cada 30 min). Si no queda ninguna URL activa, se
+detiene y vuelve a arrancar solo con el siguiente commit.
+
+Reglas para que funcione:
+
+- En ese PC **no se edita a mano**: todo cambio llega por commit. Un archivo modificado ahí
+  bloquea las actualizaciones (te llega el aviso con el nombre del archivo).
+- `config.py` y `estado_notificaciones.json` no están en git: el pull no los toca.
+- Al reiniciar se pierde lo que el monitor solo tiene en memoria: el enfriamiento de 10 min
+  de las reservas, la cuenta de entradas de `"completar"` y la pestaña de Eleventickets que
+  esperaba a que pasaras Cloudflare. Los avisos y las reservas ya vistas sí se conservan.
+- Si un commit cambia el propio `.bat`, ciérralo y ábrelo de nuevo a mano. Si cambia
+  `actualizador.py`, se relanza solo.
+- Registro en `logs/actualizador.log`. Para que arranque con Windows, pon un acceso directo
+  al `.bat` en la carpeta que abre `Win+R` → `shell:startup`.
+
 ## Pruebas
 
 Las pruebas viven en `tests/` y usan `unittest`, que viene con Python. No leen tu

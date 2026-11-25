@@ -71,6 +71,8 @@ def cargar_monitor(carpeta):
     monitor.ARCHIVO_ESTADO = os.path.join(carpeta, "estado_notificaciones.json")
     monitor.CARPETA_LOGS = os.path.join(carpeta, "logs")
     monitor.ARCHIVO_LOG = os.path.join(monitor.CARPETA_LOGS, "monitor.log")
+    # Que un reiniciar_monitor.flag real (actualizador.py en marcha) no corte las pruebas
+    monitor.ARCHIVO_REINICIO = os.path.join(carpeta, "reiniciar_monitor.flag")
     return monitor
 
 
