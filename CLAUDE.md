@@ -139,6 +139,21 @@ Descubierto contra páginas reales; conviene no volver a aprenderlo a golpes.
 - `bts-world-tour-2026` es el índice con 4 botones (Preventa Army Membership y Venta
   General × 2 y 3 de octubre). El monitor solo vigila las dos Venta General; las URLs
   de Army Membership son `bts-world-tour-army-membership-{viernes-2,sabado-3}-octubre`.
+- **Catálogo rancio** (Don Omar Bogotá, preventa artista, 25-nov-2026): la página mostraba el
+  rótulo `AGOTADO` en la cabecera, sin "Ver entradas" ni sectores pintados, pero `App` seguía
+  marcando `sections[].available` en `101 - 103 - 105 - 107`: un aviso falso cada 10 min y dos
+  reservas fallidas ("la pagina no mostro 'Comprar entradas', 'Ver entradas' ni los sectores").
+  `_agotado_sin_compra()` ignora el catálogo si una de las 4 primeras líneas de la página es
+  exactamente `AGOTADO` y no hay botón de compra visible (`JS_HAY_BOTON_DE_COMPRA`). Lo contrario
+  también pasa, en pequeño: Cali tenía "Kingdom - VIP 1" libre en el catálogo y la lista de la
+  página solo mostraba los 6 palcos (se agotó entre la lectura y la reserva).
+- **Páginas `-venta-general` antes de abrir**: son la página de términos y condiciones (sin
+  catálogo, sin AGOTADO, sin botones) y caían en el aviso `[SIN DETALLE]` "posible pre-fila" cada
+  10 min. Las URLs de `VIGILAR_BOTONES` ya no avisan eso; solo avisan de un botón nuevo en
+  `.block_buttons .button_item a` o de un "Ver entradas" visible.
+- **El navegador del monitor tiene varias pestañas** (3 `chrome://newtab` + la que navega):
+  Selenium solo maneja la suya. Quien mire otra pestaña u otra ventana de Comet no ve cambiar
+  nada, aunque el log avance. Nada que ver con caché ni con `estado_notificaciones.json`.
 
 ## Reserva en Ticketmaster: lo que ya se sabe
 
