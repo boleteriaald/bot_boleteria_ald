@@ -25,6 +25,7 @@ import collections
 import locale
 import logging
 import os
+import ssl
 import subprocess
 import sys
 import threading
@@ -62,6 +63,20 @@ def configurar_registro():
     log.setLevel(logging.INFO)
 
 
+def contexto_tls():
+    """
+    Certificados de certifi, los mismos con los que envia el monitor (python-telegram-bot usa
+    httpx, que usa certifi). Con los de Windows, en el PC de casa fallaba con "self-signed
+    certificate in certificate chain" mientras el monitor enviaba bien desde el mismo PC
+    (25-nov-2026). certifi viene instalado con python-telegram-bot.
+    """
+    try:
+        import certifi
+        return ssl.create_default_context(cafile=certifi.where())
+    except ImportError:
+        return ssl.create_default_context()
+
+
 def enviar_telegram(mensaje):
     """Envia un mensaje con el bot del monitor. Nunca lanza: si falla, queda en el registro."""
     try:
@@ -69,7 +84,7 @@ def enviar_telegram(mensaje):
         from config import TELEGRAM_BOT_TOKEN, TELEGRAM_CHAT_ID
         datos = urllib.parse.urlencode({"chat_id": TELEGRAM_CHAT_ID, "text": mensaje[:4000]}).encode()
         url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage"
-        with urllib.request.urlopen(url, data=datos, timeout=20):
+        with urllib.request.urlopen(url, data=datos, timeout=20, context=contexto_tls()):
             pass
         return True
     except Exception:
