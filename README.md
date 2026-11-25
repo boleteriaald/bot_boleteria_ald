@@ -162,8 +162,8 @@ commits nuevos en `main`:
 3. Hace `git pull` (solo avance directo), relanza el monitor y avisa por Telegram:
    "🔄 Monitor actualizado a …".
 
-Además, si el monitor se cae solo, lo relanza al minuto y manda por Telegram las últimas
-líneas que escribió (como mucho un aviso cada 30 min). Si no queda ninguna URL activa, se
+Además, si el monitor se cae solo, lo relanza al minuto y manda por Telegram los últimos
+errores que escribió (como mucho un aviso cada 30 min). Si no queda ninguna URL activa, se
 detiene y vuelve a arrancar solo con el siguiente commit.
 
 Reglas para que funcione:

@@ -11,7 +11,7 @@ trae commits nuevos:
    asi que nunca se corta una lectura ni una reserva a medias.
 3. `git merge --ff-only`, relanza el monitor y avisa por Telegram de la version nueva.
 
-Si el monitor se cae solo, lo relanza tras PAUSA_TRAS_CAIDA y avisa con las ultimas lineas
+Si el monitor se cae solo, lo relanza tras PAUSA_TRAS_CAIDA y avisa con los ultimos errores
 que escribio. Si sale porque no hay URLs activas, espera a un commit nuevo.
 
 El fetch es a GitHub, no a las boleteras: el ritmo de peticiones a ellas no cambia.
@@ -22,6 +22,7 @@ sale con SALIDA_REINICIARME y el .bat lo vuelve a lanzar con la version nueva.
 Uso: python actualizador.py [script_del_monitor]
 """
 import collections
+import locale
 import logging
 import os
 import subprocess
@@ -41,7 +42,7 @@ INTERVALO_REVISION = 60           # s entre cada git fetch
 ESPERA_MAXIMA_SALIDA = 20 * 60    # s que se espera a que el monitor acabe la URL (o reserva) en curso
 PAUSA_TRAS_CAIDA = 60             # s antes de relanzar un monitor que se cayo solo
 INTERVALO_AVISO_CAIDA = 30 * 60   # como mucho un Telegram de caida cada 30 min
-LINEAS_GUARDADAS = 40             # ultimas lineas del monitor que se guardan para el aviso de caida
+LINEAS_GUARDADAS = 40             # ultimas lineas de stderr del monitor (errores) para el aviso de caida
 LINEAS_EN_AVISO = 15
 
 NOMBRE_ARCHIVO_REINICIO = "reiniciar_monitor.flag"   # el mismo que mira el monitor
@@ -152,24 +153,29 @@ class Actualizador:
     def lanzar(self):
         if os.path.exists(self.archivo_reinicio):
             os.remove(self.archivo_reinicio)
-        entorno = dict(os.environ, PYTHONIOENCODING="utf-8", PYTHONUNBUFFERED="1")
+        # La salida normal del monitor va directa a la consola, sin pasar por aqui: se ve igual
+        # que lanzandolo a mano. Recodificarla aqui salia mal en una terminal o en otra
+        # ("Bogot�" en la de casa, "âœ“" en la de PyCharm). Solo se intercepta stderr, donde
+        # caen los errores que tumban el monitor, para mandarlos en el aviso de caida.
+        entorno = dict(os.environ, PYTHONUNBUFFERED="1")
         self.lineas.clear()
         self.proceso = subprocess.Popen([self.python, self.script], cwd=self.raiz, env=entorno,
-                                        stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
+                                        stderr=subprocess.PIPE)
         self.lanzado_en = time.time()
         self.relanzar_en = None
         self.esperando_commit = False
-        threading.Thread(target=self._repetir_salida, args=(self.proceso,), daemon=True).start()
+        threading.Thread(target=self._repetir_errores, args=(self.proceso,), daemon=True).start()
         log.info(f"Monitor lanzado: {self.script} ({self.describir('HEAD')})")
         print(f"[actualizador] Monitor lanzado: {self.script} ({self.describir('HEAD')})", flush=True)
 
-    def _repetir_salida(self, proceso):
-        """Pasa a la consola lo que escribe el monitor y guarda las ultimas lineas."""
-        for linea in proceso.stdout:
-            texto = linea.decode("utf-8", errors="replace").rstrip("\r\n")
+    def _repetir_errores(self, proceso):
+        """Pasa a la consola lo que el monitor escribe en stderr y guarda las ultimas lineas."""
+        codificacion = locale.getpreferredencoding(False)   # la misma con la que escribe el monitor
+        for linea in proceso.stderr:
+            texto = linea.decode(codificacion, errors="replace").rstrip("\r\n")
             self.lineas.append(texto)
             try:
-                print(texto, flush=True)
+                print(texto, file=sys.stderr, flush=True)
             except Exception:
                 pass
 
@@ -211,7 +217,7 @@ class Actualizador:
             self.ultimo_aviso_caida = time.time()
             ultimas = "\n".join(list(self.lineas)[-LINEAS_EN_AVISO:])
             self.avisar(f"⚠ El monitor se detuvo solo (versión {self.describir('HEAD')}). "
-                        f"Lo relanzo en {self.pausa_tras_caida} s.\n\nÚltimas líneas:\n{ultimas}")
+                        f"Lo relanzo en {self.pausa_tras_caida} s.\n\nÚltimos errores que escribió:\n{ultimas}")
 
     # ---------------------------------------------------------------- ciclo
 
@@ -281,6 +287,7 @@ class Actualizador:
 
 
 if __name__ == "__main__":
+    # Igual que el monitor (preparar_consola): la codificacion de siempre, sin tumbarse por un emoji
     for flujo in (sys.stdout, sys.stderr):
         try:
             flujo.reconfigure(errors="replace")
