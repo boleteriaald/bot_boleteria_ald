@@ -435,14 +435,14 @@ FILTROS_LOCALIDADES = {
 EXCLUIR_LOCALIDADES = {
 
     # DON OMAR: todo menos palcos (los nombres reales del catalogo llevan "Palco" o "Palcos")
-    "https://www.ticketmaster.co/event/don-omar-medellin-venta-general-fecha-2": ["palco", "KINGDOM"],
-    "https://www.ticketmaster.co/event/don-omar-medellin-venta-general": ["palco", "KINGDOM"],
+    "https://www.ticketmaster.co/event/don-omar-medellin-venta-general-fecha-2": ["palco", "KINGDOM", "Occidental"],
+    "https://www.ticketmaster.co/event/don-omar-medellin-venta-general": ["palco", "KINGDOM", "Occidental"],
     "https://www.ticketmaster.co/event/don-omar-cali-venta-general": ["palco", "KINGDOM"],
     "https://www.ticketmaster.co/event/don-omar-bogota-venta-general": ["palco", "KINGDOM"],
     "https://www.ticketmaster.co/event/don-omar-bogota-preventa-artista": ["palco", "KINGDOM"],
     "https://www.ticketmaster.co/event/don-omar-cali-preventa-artista": ["palco", "KINGDOM"],
-    "https://www.ticketmaster.co/event/don-omar-medellin-preventa-artista-fecha-2": ["palco", "KINGDOM"],
-    "https://www.ticketmaster.co/event/don-omar-medellin-preventa-artista": ["palco", "KINGDOM"],
+    "https://www.ticketmaster.co/event/don-omar-medellin-preventa-artista-fecha-2": ["palco", "KINGDOM", "Occidental"],
+    "https://www.ticketmaster.co/event/don-omar-medellin-preventa-artista": ["palco", "KINGDOM", "Occidental"],
 
 }
 
@@ -2132,17 +2132,17 @@ RESERVAR_TICKETMASTER = {
     "https://www.ticketmaster.co/event/don-omar-cali-preventa-artista":
         {"maximo": 4, "max_reservas": 8, "excluir": ["palco", "KINGDOM"], "codigo": "TABOO"},
     "https://www.ticketmaster.co/event/don-omar-medellin-preventa-artista-fecha-2":
-        {"maximo": 4, "max_reservas": 8, "excluir": ["palco", "KINGDOM"], "codigo": "BANDOLEROS"},
+        {"maximo": 4, "max_reservas": 8, "excluir": ["palco", "KINGDOM", "Occidental"], "codigo": "BANDOLEROS"},
     "https://www.ticketmaster.co/event/don-omar-medellin-preventa-artista":
-        {"maximo": 4, "max_reservas": 8, "excluir": ["palco", "KINGDOM"], "codigo": "TABOO"},
+        {"maximo": 4, "max_reservas": 8, "excluir": ["palco", "KINGDOM", "Occidental"], "codigo": "TABOO"},
     "https://www.ticketmaster.co/event/don-omar-bogota-venta-general":
         {"maximo": 4, "max_reservas": 8, "excluir": ["palco", "KINGDOM"]},
     "https://www.ticketmaster.co/event/don-omar-cali-venta-general":
         {"maximo": 4, "max_reservas": 8, "excluir": ["palco", "KINGDOM"]},
     "https://www.ticketmaster.co/event/don-omar-medellin-venta-general-fecha-2":
-        {"maximo": 4, "max_reservas": 8, "excluir": ["palco", "KINGDOM"]},
+        {"maximo": 4, "max_reservas": 8, "excluir": ["palco", "KINGDOM", "Occidental"]},
     "https://www.ticketmaster.co/event/don-omar-medellin-venta-general":
-        {"maximo": 4, "max_reservas": 8, "excluir": ["palco", "KINGDOM"]},
+        {"maximo": 4, "max_reservas": 8, "excluir": ["palco", "KINGDOM", "Occidental"]},
 
 }
 
