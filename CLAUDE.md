@@ -387,6 +387,17 @@ dejada en el pago decide la persona.
     confirmar es también "Cancelar compra").
   - Bogotá numeradas: la lista da una sección libre y al buscar asientos dice "No hay asientos
     libres" aun con 1. Es de la página.
+- **La ventana de reserva es estrecha** (Comet 9223, 742 px; 27-nov-2026): por debajo de 992 px
+  la página usa su interfaz móvil. En el código de preventa oculta el botón del formulario y envía
+  con `#ck-step-cta`; buscando solo el del formulario fallaron 4 reservas ("no pude escribirlo").
+  Las pruebas del 26-nov pasaron con la ventana ancha: probar con el ancho real. Verificado a 742 px
+  hasta el pago: Medellín 7 Sur (`TABOO`), Medellín 6 Kingdom VIP 1 (`BANDOLEROS`) y venta general.
+  `ingresar_codigo()` prueba los dos botones y, si no, Enter; antes espera a que el campo esté
+  listo (o a que la página valide sola el código ya guardado en la sesión).
+- **"Continuar al pago" sin avanzar** (Medellín 6, Sur, 27-nov-2026): se pulsó 12 veces; la causa
+  no se vio ni se ha vuelto a reproducir. Sospecha: aviso `#ck-stock-modal` al final del documento,
+  que el recorte del pie ocultaba. Ahora ese aviso corta el intento y el fallo lleva "Dialogos:" y
+  "Pasos:".
 
 ## Navegadores: solo Comet, en dos instancias
 

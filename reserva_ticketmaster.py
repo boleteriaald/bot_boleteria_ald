@@ -218,15 +218,26 @@ def _hasta_pago(pagina, sector, cantidad, pedidas, limite, reloj):
                 texto = texto[:texto.index(marca)]
                 break
         pantalla = " | ".join(l.strip() for l in texto.splitlines() if l.strip())[-400:]
-        return Reserva(False, sector, cantidad, pedidas, retenidas=True,
-                       detalle=f"{detalle}. Pantalla: ...{pantalla}" if pantalla else detalle)
+        if pantalla:
+            detalle += f". Pantalla: ...{pantalla}"
+        # Los dialogos van al final del documento, detras del pie: se perdian con el recorte.
+        dialogos = getattr(pagina, "dialogos", lambda: "")()
+        if dialogos:
+            detalle += f". Dialogos: {dialogos}"
+        if pasos:
+            detalle += f". Pasos: {' > '.join(pasos)}"
+        return Reserva(False, sector, cantidad, pedidas, retenidas=True, detalle=detalle)
 
     estancados = 0
     sin_seguro = False   # ya se pulso "Continuar sin seguro" en esta reserva
+    pasos = []           # acciones intentadas, para el aviso de fallo
     for _ in range(PASOS_MAXIMOS):
         if reloj() > limite:
             return fallo("se acabo el tiempo antes de llegar al pago")
         _seguir_compra(pagina)
+        aviso = _aviso_bloqueo(pagina)
+        if aviso:
+            return fallo(f"la pagina mostro un aviso y no deja seguir: {aviso}")
         t = pagina.texto()
 
         if RE_PAGO.search(t):
@@ -237,6 +248,7 @@ def _hasta_pago(pagina, sector, cantidad, pedidas, limite, reloj):
                            expira=expira.group(1) if expira else "")
 
         if RE_CODIGO.search(t):
+            pasos.append("codigo")
             motivo = _poner_codigo(pagina)
             if motivo:
                 resultado = fallo(motivo)
@@ -270,6 +282,7 @@ def _hasta_pago(pagina, sector, cantidad, pedidas, limite, reloj):
         else:
             accion = None
 
+        pasos.append(accion or "esperar")
         if accion is None:
             # Se espera a una pantalla CONOCIDA, no a cualquier cambio: el contador cambia el
             # texto cada segundo. En Platea C de Mana (16:27, 28-oct-2026) el bloque del seguro
@@ -290,6 +303,14 @@ def _hasta_pago(pagina, sector, cantidad, pedidas, limite, reloj):
             else:
                 estancados = 0
                 sin_seguro = True
+        elif accion == BOTON_AL_PAGO:
+            # Solo cuenta si se sale de esa pantalla o sale un aviso. Antes valia cualquier cambio
+            # de texto y se pulsaba doce veces seguidas (Medellin 6, 27-nov-2026).
+            if pagina.esperar(lambda nuevo: RE_PAGO.search(nuevo) or BOTON_AL_PAGO not in nuevo
+                              or _aviso_bloqueo(pagina), ESPERA_PASO) is None:
+                estancados += 1
+            else:
+                estancados = 0
         elif pagina.esperar(lambda nuevo: _sin_reloj(nuevo) != _sin_reloj(t), ESPERA_PASO) is None:
             estancados += 1
         else:
@@ -299,12 +320,25 @@ def _hasta_pago(pagina, sector, cantidad, pedidas, limite, reloj):
     return fallo("demasiados pasos sin llegar al pago")
 
 
+def _aviso_bloqueo(pagina):
+    """Texto del aviso que impide seguir (sin boletas, sin medios de pago), o ""."""
+    return getattr(pagina, "aviso_bloqueo", lambda: "")()
+
+
 def _poner_codigo(pagina):
     """Escribe el codigo de preventa. Devuelve "" si la pagina siguio, o por que no."""
     if not getattr(pagina, "codigo", ""):
         return "la pagina pide un codigo (preventa) y no hay ninguno configurado"
+    # El letrero sale antes de que el campo se pueda usar. Y si la sesion ya tiene el codigo, la
+    # pagina lo valida sola y la pantalla desaparece sin que haya que escribir nada.
+    listo = getattr(pagina, "campo_codigo_listo", lambda: True)
+    pagina.esperar(lambda t: not RE_CODIGO.search(t) or listo(), ESPERA_PASO)
+    if not RE_CODIGO.search(pagina.texto()):
+        return ""
     if not pagina.ingresar_codigo():
-        return "la pagina pide un codigo y no pude escribirlo"
+        if not RE_CODIGO.search(pagina.texto()):
+            return ""
+        return "la pagina pide un codigo y no aparecio el campo para escribirlo"
     pagina.esperar(lambda t: not RE_CODIGO.search(t) or pagina.error_codigo(), ESPERA_PASO)
     if RE_CODIGO.search(pagina.texto()):
         error = pagina.error_codigo()
@@ -570,11 +604,29 @@ b.scrollIntoView({block: 'center'});
 return b;
 """
 
-# Campo del codigo de preventa (leido en vivo en Don Omar, 26-nov-2026).
+# Campo del codigo de preventa (leido en vivo en Don Omar, 26-nov-2026). Mientras valida, la
+# pagina lo deshabilita.
 JS_CAMPO_CODIGO = _JS_VISIBLE + """
-return Array.from(document.querySelectorAll('#passcodeForm input#passcode')).filter(vis)[0] || null;
+return Array.from(document.querySelectorAll('#passcodeForm input#passcode')).filter(function (e) {
+    return vis(e) && !e.disabled;
+})[0] || null;
 """
-BOTON_CODIGO = "#passcodeForm button[type=submit]"
+# Con la ventana de menos de 992 px la pagina oculta el boton del formulario y envia el codigo con
+# el de la tarjeta de resumen (leido en su codigo, 27-nov-2026): ahi fallaban las reservas.
+BOTONES_CODIGO = ("#passcodeForm button[type=submit]", "#ck-step-cta")
+TECLA_ENTER = "\ue007"          # selenium Keys.ENTER
+# Avisos que impiden seguir en el pago nuevo: "#ck-stock-modal" (boletas ya no disponibles) y el
+# de falta de medios de pago.
+JS_AVISO_BLOQUEO = _JS_VISIBLE + """
+var m = Array.from(document.querySelectorAll('#ck-stock-modal .ck-dialog__card, #modalNoPaymentsAvailable.in'))
+    .filter(vis)[0];
+return m ? (m.innerText || '').replace(/\\s+/g, ' ').trim().slice(0, 300) : '';
+"""
+JS_DIALOGOS = _JS_VISIBLE + """
+return Array.from(document.querySelectorAll('.ck-dialog__card, .modal.in')).filter(vis).map(function (m) {
+    return (m.innerText || '').replace(/\\s+/g, ' ').trim().slice(0, 200);
+}).join(' / ');
+"""
 JS_ERROR_CODIGO = """
 var e = document.querySelector('#passcodeError');
 return e ? (e.innerText || '').trim() : '';
@@ -748,15 +800,36 @@ class PaginaSelenium:
         except Exception:
             return False
 
+    def _leer(self, script):
+        """Resultado de un script de solo lectura; "" si la pagina no se deja leer."""
+        try:
+            return self.driver.execute_script(script) or ""
+        except Exception:
+            return ""
+
+    def campo_codigo_listo(self):
+        return bool(self._leer(JS_CAMPO_CODIGO))
+
+    def aviso_bloqueo(self):
+        aviso = self._leer(JS_AVISO_BLOQUEO)
+        return aviso if isinstance(aviso, str) else ""
+
+    def dialogos(self):
+        texto = self._leer(JS_DIALOGOS)
+        return texto if isinstance(texto, str) else ""
+
     def ingresar_codigo(self):
-        """Escribe self.codigo en el campo de la preventa y pulsa su Continuar."""
+        """Escribe self.codigo en el campo de la preventa y lo envia con el boton que este activo."""
         campo = self.driver.execute_script(JS_CAMPO_CODIGO)
         if not campo:
             return False
         campo.clear()
         campo.send_keys(self.codigo)
-        # El boton del formulario, no el "Continuar" de abajo (deshabilitado en esa pantalla).
-        return self._clic_elemento(lambda: self.driver.execute_script(JS_BOTON_SELECTOR, BOTON_CODIGO))
+        for selector in BOTONES_CODIGO:
+            if self._clic_elemento(lambda: self.driver.execute_script(JS_BOTON_SELECTOR, selector)):
+                return True
+        campo.send_keys(TECLA_ENTER)       # envia el formulario aunque ningun boton se vea
+        return True
 
     def error_codigo(self):
         try:

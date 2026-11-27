@@ -931,6 +931,139 @@ class TestAbrirMapaReal(unittest.TestCase):
         self.assertEqual(p.motivo, "")
 
 
+class PaginaCampoLento(PaginaPideCodigo):
+    """El letrero del codigo sale antes que el campo (Medellin, 27-nov-2026)."""
+
+    def __init__(self, miradas=3, **kw):
+        super().__init__(**kw)
+        self.faltan = miradas
+
+    def campo_codigo_listo(self):
+        self.faltan -= 1
+        return self.faltan <= 0
+
+    def ingresar_codigo(self):
+        if self.faltan > 0:
+            return False
+        return super().ingresar_codigo()
+
+    def esperar(self, condicion, segundos):
+        for _ in range(6):          # varias miradas, como la pagina real
+            t = self.texto()
+            if condicion(t):
+                return t
+        return None
+
+
+class PaginaCodigoYaValidado(PaginaPideCodigo):
+    """La sesion ya tenia el codigo: la pantalla se va sola, sin escribir nada."""
+
+    def esperar(self, condicion, segundos):
+        if self.estado == "codigo":
+            self.estado = "resumen"
+        return super().esperar(condicion, segundos)
+
+
+class PaginaPagoAtascado(PaginaPideCodigo):
+    """"Continuar al pago" no avanza: con aviso de la pagina o sin el (Medellin 6, 27-nov-2026)."""
+
+    def __init__(self, aviso="", **kw):
+        super().__init__(codigo="TABOO", **kw)
+        self.aviso, self.pulsado = aviso, 0
+
+    def clic(self, texto):
+        if self.estado == "resumen" and texto == rt.BOTON_AL_PAGO:
+            self.pulsado += 1
+            return True
+        return super().clic(texto)
+
+    def aviso_bloqueo(self):
+        return self.aviso if self.pulsado else ""
+
+
+class TestCodigoEnLaPaginaReal(unittest.TestCase):
+
+    def test_espera_a_que_el_campo_este_listo(self):
+        pagina = PaginaCampoLento(codigo="TABOO")
+        reserva = rt.reservar(pagina, [SECTOR])
+        self.assertTrue(reserva.ok, reserva)
+        self.assertEqual(pagina.escritos, ["TABOO"])
+
+    def test_si_la_pagina_valida_sola_sigue_al_pago(self):
+        pagina = PaginaCodigoYaValidado(codigo="TABOO")
+        reserva = rt.reservar(pagina, [SECTOR])
+        self.assertTrue(reserva.ok, reserva)
+        self.assertEqual(pagina.escritos, [])
+
+    def test_continuar_al_pago_sin_avanzar_no_se_pulsa_doce_veces(self):
+        pagina = PaginaPagoAtascado()
+        reserva = rt.reservar(pagina, [SECTOR])
+        self.assertFalse(reserva.ok)
+        self.assertTrue(reserva.retenidas)
+        self.assertEqual(pagina.pulsado, 2)
+        self.assertIn("no avanza", reserva.detalle)
+        self.assertIn("Pasos: codigo > Continuar al pago", reserva.detalle)
+
+    def test_un_aviso_de_la_pagina_se_dice_y_corta(self):
+        pagina = PaginaPagoAtascado(aviso="Las entradas ya no estan disponibles")
+        reserva = rt.reservar(pagina, [SECTOR])
+        self.assertFalse(reserva.ok)
+        self.assertEqual(pagina.pulsado, 1)
+        self.assertIn("Las entradas ya no estan disponibles", reserva.detalle)
+
+
+class CampoFalso:
+    def __init__(self):
+        self.escrito = []
+
+    def clear(self):
+        self.escrito = []
+
+    def send_keys(self, valor):
+        self.escrito.append(valor)
+
+
+class DriverCodigo:
+    """Responde a los scripts del codigo: campo y, segun el ancho, que boton esta activo."""
+
+    def __init__(self, visibles=()):
+        self.campo, self.visibles, self.pulsados = CampoFalso(), visibles, []
+
+    def execute_script(self, script, *args):
+        if script == rt.JS_CAMPO_CODIGO:
+            return self.campo
+        if script == rt.JS_BOTON_SELECTOR and args[0] in self.visibles:
+            selector = args[0]
+            boton = Elemento()
+            boton.click = lambda: self.pulsados.append(selector)
+            return boton
+        return None
+
+
+class TestBotonDelCodigo(unittest.TestCase):
+
+    def enviar(self, visibles):
+        driver = DriverCodigo(visibles)
+        pagina = rt.PaginaSelenium(driver, "u", lambda d, u: None)
+        pagina.codigo = "TABOO"
+        self.assertTrue(pagina.ingresar_codigo())
+        return driver
+
+    def test_ventana_ancha_usa_el_boton_del_formulario(self):
+        d = self.enviar(("#passcodeForm button[type=submit]", "#ck-step-cta"))
+        self.assertEqual(d.pulsados, ["#passcodeForm button[type=submit]"])
+        self.assertEqual(d.campo.escrito, ["TABOO"])
+
+    def test_ventana_estrecha_usa_el_boton_de_la_tarjeta(self):
+        d = self.enviar(("#ck-step-cta",))
+        self.assertEqual(d.pulsados, ["#ck-step-cta"])
+
+    def test_sin_ningun_boton_envia_con_enter(self):
+        d = self.enviar(())
+        self.assertEqual(d.pulsados, [])
+        self.assertEqual(d.campo.escrito, ["TABOO", rt.TECLA_ENTER])
+
+
 class TestMensaje(unittest.TestCase):
 
     def test_reserva_completa(self):
