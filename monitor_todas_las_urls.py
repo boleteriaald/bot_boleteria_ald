@@ -148,6 +148,9 @@ URLS_A_MONITOREAR = [
     # DON OMAR CALI
     "https://www.ticketmaster.co/event/don-omar-cali-venta-general",
 
+    # DON OMAR BOGOTA VENTA GENERAL
+    "https://www.ticketmaster.co/event/don-omar-bogota-venta-general",
+
     # DON OMAR BOGOTA: pagina indice, solo se vigilan sus botones (ver VIGILAR_BOTONES)
     "https://www.ticketmaster.co/event/don-omar-bogota-2027",
 
@@ -257,17 +260,171 @@ FILTROS_LOCALIDADES = {
     # # ["TRIBUNA", "PRIMERAS"],
     #     ["PRIMERAS"],
 
-    # # DON OMAR MEDELLIN DEL 6 (sin palcos)
-    # "https://www.ticketmaster.co/event/don-omar-medellin-venta-general-fecha-2":
-    #     ["GRADERIA"],
-    #
-    # # DON OMAR MEDELLIN DEL 7 (sin palcos)
-    # "https://www.ticketmaster.co/event/don-omar-medellin-venta-general":
-    #     ["GRADERIA"],
-    #
-    # # DON OMAR CALI (sin palcos)
+    # DON OMAR: filtro por localidad, listo para usar. Quitar un '# ' a las lineas del evento y
+    # comentar las localidades que no se quieran. Los palcos van doblemente comentados porque
+    # EXCLUIR_LOCALIDADES ya los descarta (para recibirlos hay que quitarlos tambien de alli).
+
+    # DON OMAR BOGOTA VENTA GENERAL
+    # "https://www.ticketmaster.co/event/don-omar-bogota-venta-general":
+    #     [
+    #         "101 - 103 - 105 - 107",
+    #         "102 - 104 - 106 -108",
+    #         "109 - 111 - 113 - 115",
+    #         "110 - 112 - 114 - 116",
+    #         "117 - 119 - 121 - 123",
+    #         "118 - 120 - 122 - 124",
+    #         "125 - 127 - 129 - 131",
+    #         "126 - 128 - 130 - 132",
+    #         "Kingdom VIP 1",
+    #         "Kingdom VIP 2",
+    #         # "Palco Platino - Occidental",
+    #         # "Palco Platino - Oriental",
+    #         # "Palco Rubi - Occidental",
+    #         # "Palco Rubi - Oriental",
+    #         # "Palco Plata - Occidental",
+    #         # "Palco Plata - Oriental",
+    #         # "Palco Bronce - Occidental",
+    #         # "Palco Bronce - Oriental",
+    #     ],
+
+    # DON OMAR BOGOTA PREVENTA
+    # "https://www.ticketmaster.co/event/don-omar-bogota-preventa-artista":
+    #     [
+    #         "101 - 103 - 105 - 107",
+    #         "102 - 104 - 106 -108",
+    #         "109 - 111 - 113 - 115",
+    #         "110 - 112 - 114 - 116",
+    #         "117 - 119 - 121 - 123",
+    #         "118 - 120 - 122 - 124",
+    #         "125 - 127 - 129 - 131",
+    #         "126 - 128 - 130 - 132",
+    #         "Kingdom VIP 1",
+    #         "Kingdom VIP 2",
+    #         # "Palco Platino - Occidental",
+    #         # "Palco Platino - Oriental",
+    #         # "Palco Rubi - Occidental",
+    #         # "Palco Rubi - Oriental",
+    #         # "Palco Plata - Occidental",
+    #         # "Palco Plata - Oriental",
+    #         # "Palco Bronce - Occidental",
+    #         # "Palco Bronce - Oriental",
+    #     ],
+
+    # DON OMAR CALI VENTA GENERAL
     # "https://www.ticketmaster.co/event/don-omar-cali-venta-general":
-    #     ["OCCIDENTAL", "ORIENTAL", "NORTE"],
+    #     [
+    #         # Occidental y Norte: salen en los terminos; nombre en la pagina sin confirmar
+    #         "Oriental - Alta",
+    #         "Oriental - Baja",
+    #         "Occidental Alta",
+    #         "Occidental Media",
+    #         "Occidental Baja",
+    #         "Norte",
+    #         "Kingdom - VIP 1",
+    #         "Kingdom - VIP 2",
+    #         # "Palcos Diamante x 10 - Occidental",
+    #         # "Palcos Diamante x 10 - Oriental",
+    #         # "Palcos Platino x 10 - Occidental",
+    #         # "Palcos Platino x 10 - Oriental",
+    #         # "Palcos Oro x 10 - Occidental",
+    #         # "Palcos Oro x 10 - Oriental",
+    #         # "Palcos Rubí x 10 - Occidental",
+    #         # "Palcos Rubí x 10 - Oriental",
+    #         # "Palcos Plata x 10 - Occidental",
+    #         # "Palcos Plata x 10 - Oriental",
+    #         # "Palcos Bronce x 10 - Occidental",
+    #         # "Palcos Bronce x 10 - Oriental",
+    #     ],
+
+    # DON OMAR CALI PREVENTA
+    # "https://www.ticketmaster.co/event/don-omar-cali-preventa-artista":
+    #     [
+    #         # Occidental y Norte: salen en los terminos; nombre en la pagina sin confirmar
+    #         "Oriental - Alta",
+    #         "Oriental - Baja",
+    #         "Occidental Alta",
+    #         "Occidental Media",
+    #         "Occidental Baja",
+    #         "Norte",
+    #         "Kingdom - VIP 1",
+    #         "Kingdom - VIP 2",
+    #         # "Palcos Diamante x 10 - Occidental",
+    #         # "Palcos Diamante x 10 - Oriental",
+    #         # "Palcos Platino x 10 - Occidental",
+    #         # "Palcos Platino x 10 - Oriental",
+    #         # "Palcos Oro x 10 - Occidental",
+    #         # "Palcos Oro x 10 - Oriental",
+    #         # "Palcos Rubí x 10 - Occidental",
+    #         # "Palcos Rubí x 10 - Oriental",
+    #         # "Palcos Plata x 10 - Occidental",
+    #         # "Palcos Plata x 10 - Oriental",
+    #         # "Palcos Bronce x 10 - Occidental",
+    #         # "Palcos Bronce x 10 - Oriental",
+    #     ],
+
+    # DON OMAR MEDELLIN DEL 6 VENTA GENERAL
+    # "https://www.ticketmaster.co/event/don-omar-medellin-venta-general-fecha-2":
+    #     [
+    #         "Occidental",
+    #         "Norte",
+    #         "Sur",
+    #         "KINGDOM VIP 1",
+    #         "KINGDOM VIP 2",
+    #         # "Palco Diamante Norte",
+    #         # "Palco Diamante Sur",
+    #         # "Palco Platino Norte",
+    #         # "Palco Platino Sur",
+    #         # "Palco Oro Norte",
+    #         # "Palco Oro Sur",
+    #     ],
+
+    # DON OMAR MEDELLIN DEL 6 PREVENTA
+    # "https://www.ticketmaster.co/event/don-omar-medellin-preventa-artista-fecha-2":
+    #     [
+    #         "Occidental",
+    #         "Norte",
+    #         "Sur",
+    #         "KINGDOM VIP 1",
+    #         "KINGDOM VIP 2",
+    #         # "Palco Diamante Norte",
+    #         # "Palco Diamante Sur",
+    #         # "Palco Platino Norte",
+    #         # "Palco Platino Sur",
+    #         # "Palco Oro Norte",
+    #         # "Palco Oro Sur",
+    #     ],
+
+    # DON OMAR MEDELLIN DEL 7 VENTA GENERAL
+    # "https://www.ticketmaster.co/event/don-omar-medellin-venta-general":
+    #     [
+    #         "Occidental",
+    #         "Norte",
+    #         "Sur",
+    #         "KINGDOM VIP 1",
+    #         "KINGDOM VIP 2",
+    #         # "Palco Diamante Norte",
+    #         # "Palco Diamante Sur",
+    #         # "Palco Platino Norte",
+    #         # "Palco Platino Sur",
+    #         # "Palco Oro Norte",
+    #         # "Palco Oro Sur",
+    #     ],
+
+    # DON OMAR MEDELLIN DEL 7 PREVENTA
+    # "https://www.ticketmaster.co/event/don-omar-medellin-preventa-artista":
+    #     [
+    #         "Occidental",
+    #         "Norte",
+    #         "Sur",
+    #         "KINGDOM VIP 1",
+    #         "KINGDOM VIP 2",
+    #         # "Palco Diamante Norte",
+    #         # "Palco Diamante Sur",
+    #         # "Palco Platino Norte",
+    #         # "Palco Platino Sur",
+    #         # "Palco Oro Norte",
+    #         # "Palco Oro Sur",
+    #     ],
 
 }
 
@@ -281,6 +438,7 @@ EXCLUIR_LOCALIDADES = {
     "https://www.ticketmaster.co/event/don-omar-medellin-venta-general-fecha-2": ["palco"],
     "https://www.ticketmaster.co/event/don-omar-medellin-venta-general": ["palco"],
     "https://www.ticketmaster.co/event/don-omar-cali-venta-general": ["palco"],
+    "https://www.ticketmaster.co/event/don-omar-bogota-venta-general": ["palco"],
     "https://www.ticketmaster.co/event/don-omar-bogota-preventa-artista": ["palco", "101 - 103 - 105 - 107"],
     "https://www.ticketmaster.co/event/don-omar-cali-preventa-artista": ["palco"],
     "https://www.ticketmaster.co/event/don-omar-medellin-preventa-artista-fecha-2": ["palco"],
@@ -1933,6 +2091,8 @@ PAUSA_TRAS_DISPONIBILIDAD = 5  # Segundos
 # deteccion (el primero que se consiga).
 # Cuando un sector que cumple aparece NUEVO, el bot abre otra pestana, reserva hasta
 # la pantalla de pago y avisa por Telegram: el pago lo hace siempre el usuario.
+# "codigo": codigo de preventa que la pagina pida antes del pago ("codigo": "ABC"). Ojo: el
+# repositorio es publico.
 # Vacio = el monitor se comporta como siempre (solo observa y notifica).
 #
 # Navegador donde se reserva: puerto de depuracion de un Comet APARTE del que vigila,
@@ -1968,12 +2128,14 @@ RESERVAR_TICKETMASTER = {
     # (existen pero aun sin catalogo: abren el 26-nov-2026 a las 10:00). Bogota no tiene aun URL
     # de venta general (ver VIGILAR_BOTONES).
     "https://www.ticketmaster.co/event/don-omar-bogota-preventa-artista":
-        {"maximo": 4, "max_reservas": 8, "excluir": ["palco", "101 - 103 - 105 - 107"]},
+        {"maximo": 4, "max_reservas": 8, "excluir": ["palco", "101 - 103 - 105 - 107"], "codigo": "TABOO"},
     "https://www.ticketmaster.co/event/don-omar-cali-preventa-artista":
-        {"maximo": 4, "max_reservas": 8, "excluir": ["palco"]},
+        {"maximo": 4, "max_reservas": 8, "excluir": ["palco"], "codigo": "TABOO"},
     "https://www.ticketmaster.co/event/don-omar-medellin-preventa-artista-fecha-2":
-        {"maximo": 4, "max_reservas": 8, "excluir": ["palco"]},
+        {"maximo": 4, "max_reservas": 8, "excluir": ["palco"], "codigo": "BANDOLEROS"},
     "https://www.ticketmaster.co/event/don-omar-medellin-preventa-artista":
+        {"maximo": 4, "max_reservas": 8, "excluir": ["palco"], "codigo": "TABOO"},
+    "https://www.ticketmaster.co/event/don-omar-bogota-venta-general":
         {"maximo": 4, "max_reservas": 8, "excluir": ["palco"]},
     "https://www.ticketmaster.co/event/don-omar-cali-venta-general":
         {"maximo": 4, "max_reservas": 8, "excluir": ["palco"]},
@@ -2243,6 +2405,7 @@ VIGILAR_BOTONES = {
     "https://www.ticketmaster.co/event/don-omar-medellin-preventa-artista-fecha-2": {},
     "https://www.ticketmaster.co/event/don-omar-medellin-preventa-artista": {},
     "https://www.ticketmaster.co/event/don-omar-cali-venta-general": {},
+    "https://www.ticketmaster.co/event/don-omar-bogota-venta-general": {},
     "https://www.ticketmaster.co/event/don-omar-medellin-venta-general-fecha-2": {},
     "https://www.ticketmaster.co/event/don-omar-medellin-venta-general": {},
 
@@ -2428,6 +2591,8 @@ def _reserva_en_pestana(navegador, url, sectores, maximo, palabras, excluir=()):
         pagina = reserva_ticketmaster.PaginaSelenium(navegador, url, navegar)
         pagina.claves_seccion = palabras or []
         pagina.excluir_secciones = set(excluir)
+        config = RESERVAR_TICKETMASTER.get(url)
+        pagina.codigo = config.get("codigo", "") if isinstance(config, dict) else ""
         reserva = reserva_ticketmaster.reservar(pagina, sectores, maximo=maximo)
         cerrar = not reserva.ok and not reserva.retenidas and not reserva.conservar_pestana
     except Exception as e:
