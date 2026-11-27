@@ -42,7 +42,10 @@ ENTREGA_OBLIGATORIA = "Boleto Digital en la App"
 ENTREGAS_APP = (ENTREGA_OBLIGATORIA, "Recibirás tus tickets en la app")
 RECHAZO_GARANTIA = "no gracias"
 
-RE_EXPIRA = re.compile(r"La reserva expira en\s*(\d{1,2}:\d{2})", re.I)
+RE_EXPIRA = re.compile(r"(?:La reserva expira en|\bReserva)\s*(\d{1,2}:\d{2})", re.I)
+# Asientos ya retenidos en la interfaz nueva (Don Omar, 26-nov-2026): "Reserva 02:38 / Quedan 3
+# minutos para completar la compra". Sirve para saber que la seleccion paso, nunca como pago.
+RE_RETENIDA = re.compile(r"minutos? para completar la compra|\bReserva\s+\d{1,2}:\d{2}", re.I)
 # Pantalla de pago: la lista de medios ("Selecciona como deseas abonar") o, si el perfil
 # ya trae un medio elegido, directamente el formulario ("Ingresa los datos de tu
 # tarjeta", visto en la 4a reserva real). OJO: el contador "La reserva expira en" NO
@@ -62,6 +65,12 @@ RE_LINEA_GARANTIA = re.compile(r"^\s*GARANTIA EXTENDIDA\s*$", re.M)
 RE_SIN_BOLETAS = re.compile(
     r"no hay (boletas|entradas|tickets|asientos)|sin disponibilidad|ya no (hay|est.n)|no est. disponible",
     re.I)
+# Preventa con codigo (preventa artista de Don Omar, 26-nov-2026): antes del pago sale un
+# form#passcodeForm (input#passcode y su Continuar). El letrero cambia por evento: "Ingresa tu
+# codigo de artista para continuar" (7 de nov) o "Ingresa tu codigo de preventa artista aqui"
+# (6 de nov). El codigo lo pone el usuario en RESERVAR_TICKETMASTER ("codigo"); se escribe una vez.
+RE_CODIGO = re.compile(r"Debes ingresar un c.digo|Ingresa tu c.digo|c.digo de artista para continuar",
+                       re.I)
 # Conteo que muestra el selector: va en la linea justo despues del precio.
 # Aviso REAL cuando se pide mas de lo que hay (visto en Iron Maiden, sector 107, 1-oct-2026): el
 # "+" se frena en el maximo disponible y muestra "Limite de cantidad / Has seleccionado el
@@ -74,6 +83,9 @@ RE_SIN_BOLETAS = re.compile(
 RE_SEGURO = re.compile(r"Seguro de devoluci.n de entradas", re.I)
 BOTON_SIN_SEGURO = "Continuar sin seguro"
 BOTON_AL_PAGO = "Continuar al pago"
+# Textos que solo existen despues de la seleccion de boletas (ver _avanzo).
+SENALES_AVANCE = (BOTON_AL_PAGO, BOTON_SIN_SEGURO, "Recibirás tus tickets en la app",
+                  "Seguro de devolución de entradas")
 BOTON_COMPRAR = "Comprar entradas"
 AVISO_LIMITE = "Límite de cantidad"
 BOTON_ASIENTOS = "Buscar mejores asientos"
@@ -95,6 +107,7 @@ class Reserva:
     seccion: str = ""            # seccion elegida dentro de un sector numerado ("117 (+18)")
     sin_mas_secciones: bool = False  # el sector numerado no tenia mas secciones por reservar
     secciones_vistas: list = field(default_factory=list)  # ['117:libre', '118:no', ...] en el ultimo paso
+    pide_codigo: bool = False    # la pagina exige un codigo y no se tiene o no lo acepta
 
 
 def _sin_acentos(texto):
@@ -123,13 +136,46 @@ def _normalizar(texto):
     return " ".join(texto.split())
 
 
+def _avanzo(t, antes):
+    """
+    La seleccion paso: boletas listadas ("Cambiar tarifa") o directamente una pantalla posterior.
+
+    En Don Omar (26-nov-2026, Medellin, sector Sur) tras Continuar no hubo lista: salio ya la de
+    entrega y seguro ("Recibiras tus tickets en la app ... Si no puedes ir..."). Al exigir
+    "Cambiar tarifa" el bot la dio por rechazada y recargo, soltando la boleta que ya tenia.
+    """
+    if "Cambiar tarifa" in t:
+        return True
+    if RE_SIN_BOLETAS.search(t) and not RE_SIN_BOLETAS.search(antes):
+        return False
+    if any(r.search(t) and not r.search(antes) for r in (RE_RETENIDA, RE_CODIGO)):
+        return True
+    return any(_contiene(t, s) and not _contiene(antes, s) for s in SENALES_AVANCE)
+
+
+def _lista_de_asientos(t):
+    """Boletas elegidas y esperando "Continuar": formato viejo o el nuevo con asientos y reloj."""
+    return "Cambiar tarifa" in t or bool(RE_RETENIDA.search(t) and "Limpiar selecci" in t)
+
+
+def _sin_reloj(t):
+    """El texto sin la cuenta atras, que cambia cada segundo aunque la pantalla sea la misma."""
+    return re.sub(r"\d{1,2}:\d{2}", "", t)
+
+
+def _seguir_compra(pagina):
+    """Cierra con "Continuar compra" el dialogo de cancelar, si alguien lo abrio sin querer."""
+    cerrar = getattr(pagina, "seguir_compra", None)
+    if cerrar:
+        cerrar()
+
+
 def _continuar_seleccion(pagina):
     """
     Pulsa Continuar con la cantidad elegida.
 
-    Devuelve (ok, nota): ok si las boletas quedaron listadas; nota, cuando se
-    rechaza, es el texto nuevo que mostro la pagina (el aviso real de "no hay
-    boletas", que aun no se ha visto nunca: queda en el registro para saberlo).
+    Devuelve (ok, nota): ok si la pagina paso de la seleccion (ver _avanzo); nota, cuando se
+    rechaza, es el texto nuevo que mostro la pagina (el aviso real de "no hay boletas").
     """
     antes = pagina.texto()
     # En una localidad NUMERADA no hay Continuar en este paso: el boton es "Buscar mejores
@@ -138,17 +184,19 @@ def _continuar_seleccion(pagina):
     boton = BOTON_ASIENTOS if BOTON_ASIENTOS in antes else "Continuar"
 
     def resuelto(t):
-        if "Cambiar tarifa" in t:
+        if _avanzo(t, antes):
             return True
         return bool(RE_SIN_BOLETAS.search(t)) and not RE_SIN_BOLETAS.search(antes)
 
     # Observado en vivo: el primer clic a veces no hace nada y el segundo si.
     # Es un unico reintento de clic en la misma pantalla, nunca una recarga.
     for espera in (ESPERA_RESPUESTA, ESPERA_PASO):
+        _seguir_compra(pagina)
         pagina.clic(boton)
         t = pagina.esperar(resuelto, espera)
         if t is not None:
-            return "Cambiar tarifa" in t, ("" if "Cambiar tarifa" in t else _lineas_nuevas(antes, t))
+            ok = _avanzo(t, antes)
+            return ok, ("" if ok else _lineas_nuevas(antes, t))
     return False, "sin respuesta: " + _lineas_nuevas(antes, pagina.texto())
 
 
@@ -156,7 +204,7 @@ def _reconocida(t):
     """Hay en pantalla algo que _hasta_pago() sabe hacer (o el pago)."""
     return bool(RE_PAGO.search(t) or "Confirmar reserva" in t or RE_SEGURO.search(t)
                 or BOTON_SIN_SEGURO in t or BOTON_AL_PAGO in t or RE_ENTREGA.search(t)
-                or RE_GARANTIA.search(t) or "Cambiar tarifa" in t)
+                or RE_GARANTIA.search(t) or RE_CODIGO.search(t) or _lista_de_asientos(t))
 
 
 def _hasta_pago(pagina, sector, cantidad, pedidas, limite, reloj):
@@ -178,6 +226,7 @@ def _hasta_pago(pagina, sector, cantidad, pedidas, limite, reloj):
     for _ in range(PASOS_MAXIMOS):
         if reloj() > limite:
             return fallo("se acabo el tiempo antes de llegar al pago")
+        _seguir_compra(pagina)
         t = pagina.texto()
 
         if RE_PAGO.search(t):
@@ -186,6 +235,14 @@ def _hasta_pago(pagina, sector, cantidad, pedidas, limite, reloj):
             return Reserva(True, sector, cantidad, pedidas,
                            total=f"$ {total[-1]}" if total else "",
                            expira=expira.group(1) if expira else "")
+
+        if RE_CODIGO.search(t):
+            motivo = _poner_codigo(pagina)
+            if motivo:
+                resultado = fallo(motivo)
+                resultado.pide_codigo = True
+                return resultado
+            continue
 
         if "Confirmar reserva" in t:
             accion = "Confirmar reserva"
@@ -208,7 +265,7 @@ def _hasta_pago(pagina, sector, cantidad, pedidas, limite, reloj):
             # La garantia viene marcada de fabrica y suma su linea al resumen:
             # mientras siga ahi, hay que rechazarla; cuando desaparece, se sigue.
             accion = RECHAZO_GARANTIA if RE_LINEA_GARANTIA.search(t) else "Continuar"
-        elif "Cambiar tarifa" in t:
+        elif _lista_de_asientos(t):
             accion = "Continuar"
         else:
             accion = None
@@ -227,18 +284,32 @@ def _hasta_pago(pagina, sector, cantidad, pedidas, limite, reloj):
             # Solo cuenta cuando el boton de abajo pasa a "Continuar al pago". Antes bastaba con
             # que cambiara cualquier texto (la pantalla cambia sola): Platea C de Mana (16:05,
             # 28-oct-2026) dio el seguro por rechazado sin estarlo y se quedo parada.
-            if pagina.esperar(lambda nuevo: BOTON_AL_PAGO in nuevo, ESPERA_PASO) is None:
+            if pagina.esperar(lambda nuevo: BOTON_AL_PAGO in nuevo or RE_PAGO.search(nuevo),
+                              ESPERA_PASO) is None:
                 estancados += 1
             else:
                 estancados = 0
                 sin_seguro = True
-        elif pagina.esperar(lambda nuevo: nuevo != t, ESPERA_PASO) is None:
+        elif pagina.esperar(lambda nuevo: _sin_reloj(nuevo) != _sin_reloj(t), ESPERA_PASO) is None:
             estancados += 1
         else:
             estancados = 0
         if estancados >= 2:
             return fallo(f"la pagina no avanza (ultimo paso: {accion or 'pantalla desconocida'})")
     return fallo("demasiados pasos sin llegar al pago")
+
+
+def _poner_codigo(pagina):
+    """Escribe el codigo de preventa. Devuelve "" si la pagina siguio, o por que no."""
+    if not getattr(pagina, "codigo", ""):
+        return "la pagina pide un codigo (preventa) y no hay ninguno configurado"
+    if not pagina.ingresar_codigo():
+        return "la pagina pide un codigo y no pude escribirlo"
+    pagina.esperar(lambda t: not RE_CODIGO.search(t) or pagina.error_codigo(), ESPERA_PASO)
+    if RE_CODIGO.search(pagina.texto()):
+        error = pagina.error_codigo()
+        return "la pagina no acepto el codigo" + (f": {error}" if error else "")
+    return ""
 
 
 def _reservar_sector(pagina, sector, maximo, minimo, limite, reloj):
@@ -301,7 +372,11 @@ def reservar(pagina, sectores, maximo=MAXIMO_POR_LOCALIDAD, minimo=1, reloj=time
         ultimo.seccion = getattr(pagina, "seccion", "")
         ultimo.sin_mas_secciones = bool(getattr(pagina, "sin_secciones", False))
         ultimo.secciones_vistas = list(getattr(pagina, "secciones_vistas", []))
-        if ultimo.ok or ultimo.retenidas or reloj() > limite:
+        if ultimo.pide_codigo:
+            # Todo el evento pide el mismo codigo. Sin seccion, el bucle de pestanas del
+            # monitor tampoco prueba las demas secciones de este sector.
+            ultimo.seccion = ""
+        if ultimo.ok or ultimo.retenidas or ultimo.pide_codigo or reloj() > limite:
             break
     return ultimo
 
@@ -381,15 +456,28 @@ c[0].scrollIntoView({block: 'center'});
 return c[0];
 """
 
+# Nombre de una fila de sector o de seccion: el texto de su <h5> SIN la etiqueta del tipo de
+# asiento. Desde el 26-nov-2026 (Don Omar) el <h5> trae dentro `span.pk-sector-type` ("Butaca
+# numerada", "Ubicacion libre"): comparando el <h5> entero ningun sector casaba y TODAS las
+# reservas fallaban con "el sector no aparece o no se pudo abrir".
+_JS_NOMBRE = """
+var nombre = function (e) {
+    var h = e.querySelector('h5');
+    if (!h) { return e.innerText || ''; }
+    var copia = h.cloneNode(true);
+    copia.querySelectorAll('.pk-sector-type').forEach(function (x) { x.remove(); });
+    return copia.textContent || '';
+};
+"""
+
 # Los espacios se igualan: el catalogo trae nombres con espacios dobles escritos a mano
 # ("101 - 103 - 105 - 107  (Menores +12)", Mana) y la pantalla los muestra con uno solo.
 # Sin esto la reserva de ese sector fallaba con "el sector no aparece" (28-oct-2026).
-JS_ELEGIR_SECTOR = _JS_VISIBLE + """
+JS_ELEGIR_SECTOR = _JS_VISIBLE + _JS_NOMBRE + """
 var sin = function (s) { return (s || '').normalize('NFD').replace(/[\\u0300-\\u036f]/g, '').replace(/\\s+/g, ' ').trim().toLowerCase(); };
 var n = sin(arguments[0]);
 var o = Array.from(document.querySelectorAll('.sectorOption')).filter(function (e) {
-    var h = e.querySelector('h5');
-    return sin(h ? h.innerText : e.innerText) === n;
+    return sin(nombre(e)) === n;
 });
 if (!o.length) { return null; }
 return o[0];
@@ -437,10 +525,9 @@ return b || null;
 # Verificado en vivo (Iron Maiden): las filas libres son div.item.sectionOption (OJO: no
 # sectorOption, que son las de sectores); las agotadas llevan "item-inactive" en vez de
 # esa clase y la etiqueta AGOTADO. Devuelve todas, con su nombre y si estan libres.
-JS_SECCIONES = _JS_VISIBLE + """
+JS_SECCIONES = _JS_VISIBLE + _JS_NOMBRE + """
 return Array.from(document.querySelectorAll('.sectionOption, .item-inactive')).filter(vis).map(function (e) {
-    var h = e.querySelector('h5');
-    return {el: e, texto: (h ? h.innerText : e.innerText).trim(),
+    return {el: e, texto: nombre(e).trim(),
             libre: e.classList.contains('sectionOption') && !/agotado/i.test(e.innerText || '')};
 });
 """
@@ -481,6 +568,28 @@ var b = Array.from(document.querySelectorAll(arguments[0])).filter(vis)[0];
 if (!b || b.disabled || b.getAttribute('aria-disabled') === 'true') { return null; }
 b.scrollIntoView({block: 'center'});
 return b;
+"""
+
+# Campo del codigo de preventa (leido en vivo en Don Omar, 26-nov-2026).
+JS_CAMPO_CODIGO = _JS_VISIBLE + """
+return Array.from(document.querySelectorAll('#passcodeForm input#passcode')).filter(vis)[0] || null;
+"""
+BOTON_CODIGO = "#passcodeForm button[type=submit]"
+JS_ERROR_CODIGO = """
+var e = document.querySelector('#passcodeError');
+return e ? (e.innerText || '').trim() : '';
+"""
+
+# Dialogo "Estas seguro que quieres cancelar la seleccion?" ("Cancelar compra" libera las
+# entradas / "Continuar compra"). Solo se devuelve "Continuar compra": el bot nunca cancela.
+JS_SEGUIR_COMPRA = _JS_VISIBLE + """
+var m = Array.from(document.querySelectorAll('.modal.in')).filter(function (e) {
+    return vis(e) && /seguro\\s+que\\s+quieres\\s+cancelar/i.test(e.innerText || '');
+})[0];
+if (!m) { return null; }
+return Array.from(m.querySelectorAll('button,a')).filter(function (b) {
+    return /^continuar\\s+compra$/i.test((b.innerText || '').trim());
+})[0] || null;
 """
 
 # Filas de tarifa (Mana, 28-oct-2026): un sector puede tener VARIAS ("Entrada ET1 | Descuento
@@ -542,6 +651,7 @@ class PaginaSelenium:
         self.secciones_vistas = []  # estado de cada fila del ultimo paso de seccion
         self.tarifa = None          # indice de la fila de tarifa elegida (None = una sola, formato viejo)
         self.nombre_tarifa = ""
+        self.codigo = ""            # codigo de preventa del evento ("codigo" en la configuracion)
 
     def texto(self):
         """
@@ -630,6 +740,29 @@ class PaginaSelenium:
         if selector and self._clic_elemento(lambda: self.driver.execute_script(JS_BOTON_SELECTOR, selector)):
             return True
         return self._clic_elemento(lambda: self.driver.execute_script(JS_CLIC_TEXTO, texto))
+
+    def seguir_compra(self):
+        """Si esta abierto el dialogo de cancelar la compra, pulsa "Continuar compra"."""
+        try:
+            return self._clic_elemento(lambda: self.driver.execute_script(JS_SEGUIR_COMPRA))
+        except Exception:
+            return False
+
+    def ingresar_codigo(self):
+        """Escribe self.codigo en el campo de la preventa y pulsa su Continuar."""
+        campo = self.driver.execute_script(JS_CAMPO_CODIGO)
+        if not campo:
+            return False
+        campo.clear()
+        campo.send_keys(self.codigo)
+        # El boton del formulario, no el "Continuar" de abajo (deshabilitado en esa pantalla).
+        return self._clic_elemento(lambda: self.driver.execute_script(JS_BOTON_SELECTOR, BOTON_CODIGO))
+
+    def error_codigo(self):
+        try:
+            return self.driver.execute_script(JS_ERROR_CODIGO) or ""
+        except Exception:
+            return ""
 
     def abrir_mapa(self):
         self.motivo = ""

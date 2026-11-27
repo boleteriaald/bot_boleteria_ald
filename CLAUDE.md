@@ -176,6 +176,11 @@ fábrica y suma su línea al resumen; hay que pulsar "no gracias"), **siempre** 
 Digital en la App" aunque haya otras entregas, y **parar antes de pagar**: el bot no
 toca ningún medio de pago ni escribe datos de tarjeta.
 
+Otra decisión fija (26-nov-2026): si aparece "¿Estas seguro que quieres cancelar la selección?",
+**siempre "Continuar compra"**, nunca "Cancelar compra" (`seguir_compra()`, antes de cada paso;
+verificado en vivo sin boletas retenidas). Solo vigila mientras el bot trabaja: en una pestaña ya
+dejada en el pago decide la persona.
+
 - **Interfaz nueva del seguro** (Maná, 28-oct-2026; la reserva real de Platea C se quedó
   ahí con 1 boleta retenida, "pantalla desconocida"): tras las boletas listadas sale una
   sola pantalla con la entrega ya puesta ("Recibirás tus tickets en la app"; en el resumen,
@@ -360,6 +365,28 @@ toca ningún medio de pago ni escribe datos de tarjeta.
 - **Sin verificar en vivo**: el caso de menos de 4 boletas (la bajada 4→3→2→1 solo
   está probada con una página simulada) y el texto exacto del aviso de "no hay
   boletas".
+- **Don Omar, 26-nov-2026** (todas las reservas fallaban):
+  - El `<h5>` de cada sector trae ahora `span.pk-sector-type` ("Butaca numerada", "Ubicación
+    libre"). `_JS_NOMBRE` lo quita; comparando el `<h5>` entero daba "el sector no aparece o no
+    se pudo abrir". Verificado en vivo: el bot vuelve a entrar a los sectores. El lector de
+    reserva del monitor (`.sectorOption h5`, solo si no hay `App`) no se ha cambiado.
+  - Tras Continuar puede salir **directo** la entrega con seguro ("Recibirás tus tickets en la
+    app … Si no puedes ir no podrás recuperar…"), sin "Cambiar tarifa": el bot lo daba por
+    rechazado y recargaba, soltando la boleta. Ahora lo reconoce (`_avanzo`). **Sin verificar en
+    vivo** desde ahí hasta el pago: la localidad se agotó antes de repetirlo.
+  - Las preventas de artista piden un código antes del pago (`form#passcodeForm`,
+    `input#passcode`); el letrero cambia por evento ("…código de artista para continuar" / "…código
+    de preventa artista aquí"). Va en `RESERVAR_TICKETMASTER[url]["codigo"]` y se escribe una vez
+    (`_poner_codigo`); sin código o rechazado, `pide_codigo` y la pestaña queda abierta.
+  - Numeradas, interfaz nueva: tras "Buscar mejores asientos" la lista de asientos ya no dice
+    "Cambiar tarifa", solo "Limpiar selección", la cuenta "Reserva 02:59" y Continuar
+    (`_lista_de_asientos`). El contador cambia cada segundo: comparar pantallas con `_sin_reloj`.
+  - **Verificado de punta a punta** (26-nov-2026, 19:08-19:11): preventas de Medellín 7 y Cali con
+    `TABOO` y Medellín 6 con `BANDOLEROS`, un palco cada una, hasta "Selecciona cómo deseas abonar".
+    Cancelar: "Cancelar compra" y `#checkoutCancelModal button.acceptModal` (el texto del botón de
+    confirmar es también "Cancelar compra").
+  - Bogotá numeradas: la lista da una sección libre y al buscar asientos dice "No hay asientos
+    libres" aun con 1. Es de la página.
 
 ## Navegadores: solo Comet, en dos instancias
 

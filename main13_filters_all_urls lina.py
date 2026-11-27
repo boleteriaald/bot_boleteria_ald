@@ -1877,6 +1877,8 @@ PAUSA_TRAS_DISPONIBILIDAD = 5  # Segundos
 # deteccion (el primero que se consiga).
 # Cuando un sector que cumple aparece NUEVO, el bot abre otra pestana, reserva hasta
 # la pantalla de pago y avisa por Telegram: el pago lo hace siempre el usuario.
+# "codigo": codigo de preventa que la pagina pida antes del pago ("codigo": "ABC"). Ojo: el
+# repositorio es publico.
 # Vacio = el monitor se comporta como siempre (solo observa y notifica).
 #
 # Navegador donde se reserva: puerto de depuracion de un Comet APARTE del que vigila,
@@ -2230,6 +2232,8 @@ def _reserva_en_pestana(navegador, url, sectores, maximo, palabras, excluir=()):
         pagina = reserva_ticketmaster.PaginaSelenium(navegador, url, navegar)
         pagina.claves_seccion = palabras or []
         pagina.excluir_secciones = set(excluir)
+        config = RESERVAR_TICKETMASTER.get(url)
+        pagina.codigo = config.get("codigo", "") if isinstance(config, dict) else ""
         reserva = reserva_ticketmaster.reservar(pagina, sectores, maximo=maximo)
         cerrar = not reserva.ok and not reserva.retenidas and not reserva.conservar_pestana
     except Exception as e:

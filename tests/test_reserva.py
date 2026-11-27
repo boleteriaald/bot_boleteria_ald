@@ -6,6 +6,7 @@ PaginaFalsa reproduce el orden de pantallas observado en Carlos Vives
 confirmar -> pago. `cupo` son las boletas realmente libres; la pagina solo lo
 delata rechazando la seleccion al pulsar Continuar.
 """
+import inspect
 import unittest
 from unittest import mock
 
@@ -185,6 +186,186 @@ class PaginaSeccionesQueDesaparecen(PaginaFalsa):
 
 def reservar(pagina, sectores=(SECTOR,), **kw):
     return rt.reservar(pagina, list(sectores), **kw)
+
+
+class PaginaPideCodigo(PaginaFalsa):
+    """
+    Preventa de artista (Don Omar, 26-nov-2026): tras la seleccion sale el formulario del codigo y,
+    aceptado, la entrega con seguro. En las numeradas antes hay una lista de asientos sin "Cambiar
+    tarifa", con la cuenta atras corriendo.
+    """
+
+    def __init__(self, codigo="", bueno="TABOO", **kw):
+        super().__init__(**kw)
+        self.codigo, self.bueno, self.escritos, self.reloj_pagina = codigo, bueno, [], 0
+
+    def texto(self):
+        self.reloj_pagina += 1
+        reloj = f"Reserva 02:{59 - self.reloj_pagina % 60:02d}\nQuedan 3 minutos para completar la compra.\n"
+        if self.estado == "asientos":
+            return reloj + "Tu selección\nLimpiar selección\nSección\n10T\nAsiento\n1\nContinuar"
+        if self.estado == "codigo":
+            return reloj + "Ingresa tu código de artista para continuar\nResumen\nTotal\n$ 817.000\nContinuar"
+        if self.estado == "resumen":
+            return reloj + "Recibirás tus tickets en la app\nSin protección\nContinuar al pago"
+        return super().texto()
+
+    def ingresar_codigo(self):
+        self.escritos.append(self.codigo)
+        if self.codigo == self.bueno:
+            self.estado = "resumen"
+        return True
+
+    def error_codigo(self):
+        return "Código inválido" if self.escritos and self.estado == "codigo" else ""
+
+    def clic(self, texto):
+        if self.estado == "resumen" and texto == rt.BOTON_AL_PAGO:
+            self.estado = "pago"
+            return True
+        return super().clic(texto)
+
+    def _continuar(self):
+        if self.estado == "tarifa":
+            self.intentos.append(self.cantidad)
+            self.estado = "asientos" if self.numerada else "codigo"
+        elif self.estado == "asientos":
+            self.estado = "codigo"
+        return True
+
+
+class TestPreventaConCodigo(unittest.TestCase):
+
+    def test_escribe_el_codigo_una_vez_y_llega_al_pago(self):
+        pagina = PaginaPideCodigo(codigo="TABOO")
+        reserva = rt.reservar(pagina, [SECTOR])
+        self.assertTrue(reserva.ok, reserva)
+        self.assertFalse(reserva.pide_codigo)
+        self.assertEqual(pagina.escritos, ["TABOO"])
+        self.assertEqual(pagina.limpiezas, 0)
+
+    def test_numerada_nueva_lista_de_asientos_codigo_y_pago(self):
+        pagina = PaginaPideCodigo(codigo="TABOO", numerada=True)
+        reserva = rt.reservar(pagina, [SECTOR])
+        self.assertTrue(reserva.ok, reserva)
+        self.assertEqual(pagina.escritos, ["TABOO"])
+        self.assertEqual(pagina.intentos, [4])
+        self.assertEqual(pagina.limpiezas, 0)
+
+    def test_sin_codigo_configurado_un_intento_y_la_pestana_queda_abierta(self):
+        pagina = PaginaPideCodigo(sectores=("Sur", "Norte"))
+        reserva = rt.reservar(pagina, ["Sur", "Norte"])
+        self.assertFalse(reserva.ok)
+        self.assertTrue(reserva.pide_codigo)
+        self.assertTrue(reserva.retenidas)         # se puede escribir a mano
+        self.assertIn("ninguno configurado", reserva.detalle)
+        self.assertEqual(reserva.sector, "Sur")
+        self.assertEqual(reserva.seccion, "")
+        self.assertEqual(pagina.intentos, [4])     # ni 3, 2, 1 ni el segundo sector
+        self.assertEqual(pagina.limpiezas, 0)      # ninguna carga extra
+        self.assertEqual(pagina.escritos, [])
+
+    def test_codigo_rechazado_no_se_repite_y_lo_dice(self):
+        pagina = PaginaPideCodigo(codigo="MALO", sectores=("Sur", "Norte"))
+        reserva = rt.reservar(pagina, ["Sur", "Norte"])
+        self.assertFalse(reserva.ok)
+        self.assertTrue(reserva.pide_codigo)
+        self.assertIn("no acepto el codigo", reserva.detalle)
+        self.assertIn("Código inválido", reserva.detalle)
+        self.assertEqual(pagina.escritos, ["MALO"])
+
+    def test_reconoce_los_dos_letreros_vistos(self):
+        for letrero in ("Ingresa tu código de artista para continuar",       # Medellín 7
+                        "Ingresa tu código de preventa artista aquí"):       # Medellín 6
+            with self.subTest(letrero=letrero):
+                self.assertTrue(rt.RE_CODIGO.search(letrero))
+        self.assertFalse(rt.RE_CODIGO.search("deberá ingresar el código enviado por el artista"))
+
+    def test_sin_asientos_con_reloj_a_la_vista_sigue_siendo_rechazo(self):
+        antes = "Seleccionar tarifa\nBuscar mejores asientos"
+        despues = "Reserva 02:59\nLo sentimos!\nNo hay asientos libres para esta sección."
+        self.assertFalse(rt._avanzo(despues, antes))
+
+
+class PaginaConDialogoDeCancelar(PaginaFalsa):
+    """Alguien abre "seguro que quieres cancelar" a mitad de la reserva: tapa todo hasta cerrarlo."""
+
+    def __init__(self, **kw):
+        super().__init__(**kw)
+        self.dialogo, self.cerrados = False, 0
+
+    def seguir_compra(self):
+        if not self.dialogo:
+            return False
+        self.dialogo, self.cerrados = False, self.cerrados + 1
+        return True
+
+    def texto(self):
+        previo = "¿Estas seguro que quieres cancelar la selección?\nCancelar compra\nContinuar compra\n"
+        return (previo if self.dialogo else "") + super().texto()
+
+    def clic(self, texto):
+        if self.dialogo:
+            self.clics.append(f"tapado: {texto}")
+            return False
+        return super().clic(texto)
+
+    def fijar_cantidad(self, n):
+        self.dialogo = True
+        return super().fijar_cantidad(n)
+
+
+class TestDialogoDeCancelar(unittest.TestCase):
+
+    def test_pulsa_continuar_compra_y_sigue_hasta_el_pago(self):
+        pagina = PaginaConDialogoDeCancelar()
+        reserva = rt.reservar(pagina, [SECTOR])
+        self.assertTrue(reserva.ok, reserva)
+        self.assertEqual(pagina.cerrados, 1)
+        self.assertNotIn("Cancelar compra", pagina.clics)
+        self.assertFalse([c for c in pagina.clics if c.startswith("tapado")])
+
+    def test_el_modulo_nunca_pulsa_cancelar_compra(self):
+        self.assertNotIn('clic("Cancelar compra")', inspect.getsource(rt))
+        self.assertIn("continuar\\s+compra", rt.JS_SEGUIR_COMPRA)
+
+
+class PaginaDirectaAlSeguro(PaginaFalsa):
+    """Tras Continuar no hay lista de boletas: sale ya la entrega con el seguro (Don Omar, 26-nov-2026)."""
+
+    def texto(self):
+        if self.estado == "resumen":
+            return ("Recibirás tus tickets en la app\nRecibirás tus entradas en la app Quentro\n$ 8.500\n"
+                    "Si no puedes ir no podrás recuperar el valor de tus entradas\n"
+                    "Sin protección\nProteger mis entradas\nContinuar al pago")
+        return super().texto()
+
+    def clic(self, texto):
+        if self.estado == "resumen" and texto == rt.BOTON_AL_PAGO:
+            self.clics.append(texto)
+            self.estado = "pago"
+            return True
+        return super().clic(texto)
+
+    def _continuar(self):
+        if self.estado == "tarifa":
+            self.intentos.append(self.cantidad)
+            self.estado = "resumen"
+            return True
+        return super()._continuar()
+
+
+class TestDirectoAlSeguro(unittest.TestCase):
+
+    def test_no_lo_toma_por_rechazo_y_llega_al_pago_sin_recargar(self):
+        pagina = PaginaDirectaAlSeguro(tope=1)
+        reserva = rt.reservar(pagina, [SECTOR], maximo=2)
+        self.assertTrue(reserva.ok, reserva)
+        self.assertEqual(reserva.cantidad, 1)
+        self.assertEqual(pagina.intentos, [1])
+        self.assertEqual(pagina.limpiezas, 0)
+        self.assertEqual(pagina.clics.count(rt.BOTON_AL_PAGO), 1)
+        self.assertNotIn("Proteger mis entradas", pagina.clics)
 
 
 class TestCantidad(unittest.TestCase):
